@@ -6,8 +6,13 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "truckflow",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.truckflow.app",
+      "associatedDomains": [
+        "applinks:app.truckflow.nodemedia.in"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -15,10 +20,36 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "package": "com.truckflow.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "app.truckflow.nodemedia.in"
+            },
+            {
+              "scheme": "http",
+              "host": "app.truckflow.nodemedia.in"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "94cea178-0c38-4dfe-a8ea-4a11177fcb98"
+      }
     }
   }
 }
