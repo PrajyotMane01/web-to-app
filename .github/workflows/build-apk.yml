@@ -12,14 +12,6 @@ on:
       url:
         description: "Website URL to wrap"
         required: true
-      icon_url:
-        description: "App icon as base64 data-URL or https:// URL"
-        required: false
-        default: ""
-      splash_url:
-        description: "Splash screen as base64 data-URL or https:// URL"
-        required: false
-        default: ""
       permissions:
         description: "Comma-separated permission keys (camera,location,microphone,notifications,storage,contacts)"
         required: false
@@ -77,55 +69,18 @@ jobs:
           app.expo.android.intentFilters = [];
           fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
           console.log("✓ config.js and app.json patched");
+          console.log("✓ Using default icon and splash from template");
           EOF
 
-      # ── 4. Set app icon ───────────────────────────────────────
-      - name: Set app icon
-        if: ${{ inputs.icon_url != '' && inputs.icon_url != 'null' }}
-        env:
-          ICON_URL: ${{ inputs.icon_url }}
-        run: |
-          if echo "$ICON_URL" | grep -q "^data:image"; then
-            # base64 data-URL → decode to PNG
-            echo "$ICON_URL" \
-              | sed 's/data:image\/[^;]*;base64,//' \
-              | base64 -d > assets/icon.png
-            echo "✓ Icon decoded from base64"
-          elif echo "$ICON_URL" | grep -q "^https\?://"; then
-            # Regular URL → download
-            curl -fsSL "$ICON_URL" -o assets/icon.png
-            echo "✓ Icon downloaded from URL"
-          else
-            echo "⚠ Invalid icon URL format, using default icon"
-          fi
-
-      # ── 5. Set splash screen ──────────────────────────────────
-      - name: Set splash screen
-        if: ${{ inputs.splash_url != '' && inputs.splash_url != 'null' }}
-        env:
-          SPLASH_URL: ${{ inputs.splash_url }}
-        run: |
-          if echo "$SPLASH_URL" | grep -q "^data:image"; then
-            echo "$SPLASH_URL" \
-              | sed 's/data:image\/[^;]*;base64,//' \
-              | base64 -d > assets/splash-icon.png
-            echo "✓ Splash decoded from base64"
-          elif echo "$SPLASH_URL" | grep -q "^https\?://"; then
-            curl -fsSL "$SPLASH_URL" -o assets/splash-icon.png
-            echo "✓ Splash downloaded from URL"
-          else
-            echo "⚠ Invalid splash URL format, using default splash"
-          fi
-
-      # ── 6. Install dependencies ───────────────────────────────
+      # ── 4. Install dependencies ───────────────────────────────
       - name: Install dependencies
         run: npm ci
 
-      # ── 7. Expo prebuild ──────────────────────────────────────
+      # ── 5. Expo prebuild ──────────────────────────────────────
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean
 
-      # ── 8. Inject permissions into AndroidManifest.xml ────────
+      # ── 6. Inject permissions into AndroidManifest.xml ────────
       - name: Inject Android permissions
         env:
           PERMISSIONS: ${{ inputs.permissions }}
@@ -173,12 +128,12 @@ jobs:
               print("✓ No new permissions needed")
           PYEOF
 
-      # ── 9. Build release APK ──────────────────────────────────
+      # ── 7. Build release APK ──────────────────────────────────
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleRelease
 
-      # ── 10. Upload APK to Cloudflare R2 ──────────────────────
+      # ── 8. Upload APK to Cloudflare R2 ──────────────────────
       - name: Upload APK to Cloudflare R2
         id: upload
         env:
@@ -203,7 +158,7 @@ jobs:
           echo "DOWNLOAD_URL=${DOWNLOAD_URL}" >> "$GITHUB_ENV"
           echo "✓ APK uploaded to R2 — ${DOWNLOAD_URL}"
 
-      # ── 11. Notify dashboard — success ────────────────────────
+      # ── 9. Notify dashboard — success ────────────────────────
       - name: Webhook — success
         if: success()
         env:
@@ -217,7 +172,7 @@ jobs:
             -d "{\"build_id\":\"${BUILD_ID}\",\"status\":\"success\",\"download_url\":\"${DOWNLOAD_URL}\"}"
           echo "✓ Webhook notified — success"
 
-      # ── 12. Notify dashboard — failure ────────────────────────
+      # ── 10. Notify dashboard — failure ────────────────────────
       - name: Webhook — failure
         if: failure()
         env:
