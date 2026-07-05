@@ -1,44 +1,228 @@
 name: Build Android APK
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: "Display name of the app"
+        required: true
+      package_name:
+        description: "Android package name (e.g. com.mystore.app)"
+        required: true
+      url:
+        description: "Website URL to wrap"
+        required: true
+      icon_url:
+        description: "App icon as base64 data-URL or https:// URL"
+        required: false
+        default: ""
+      splash_url:
+        description: "Splash screen as base64 data-URL or https:// URL"
+        required: false
+        default: ""
+      permissions:
+        description: "Comma-separated permission keys (camera,location,microphone,notifications,storage,contacts)"
+        required: false
+        default: ""
+      build_id:
+        description: "Dashboard build record ID — sent back in the webhook"
+        required: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
+      # ── 1. Checkout ───────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── 2. Toolchain ──────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "20"
+          cache: "npm"
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      # ── 3. Inject app config ──────────────────────────────────
+      - name: Patch config.js and app.json
+        env:
+          APP_NAME:     ${{ inputs.app_name }}
+          APP_URL:      ${{ inputs.url }}
+          PACKAGE_NAME: ${{ inputs.package_name }}
+        run: |
+          node - << 'EOF'
+          const fs = require("fs");
+
+          // config.js — sets the WebView URL
+          fs.writeFileSync("config.js",
+            `export const config = {\n  webViewUrl: ${JSON.stringify(process.env.APP_URL)},\n};\n`
+          );
+
+          // app.json — sets display name + package name
+          const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+          app.expo.name                = process.env.APP_NAME;
+          app.expo.android             = app.expo.android || {};
+          app.expo.android.package     = process.env.PACKAGE_NAME;
+          // Clear deep-link intent filters — they belong to the original project
+          app.expo.android.intentFilters = [];
+          fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
+          console.log("✓ config.js and app.json patched");
+          EOF
+
+      # ── 4. Set app icon ───────────────────────────────────────
+      - name: Set app icon
+        if: ${{ inputs.icon_url != '' }}
+        env:
+          ICON_URL: ${{ inputs.icon_url }}
+        run: |
+          if echo "$ICON_URL" | grep -q "^data:image"; then
+            # base64 data-URL → decode to PNG
+            echo "$ICON_URL" \
+              | sed 's/data:image\/[^;]*;base64,//' \
+              | base64 -d > assets/icon.png
+            echo "✓ Icon decoded from base64"
+          else
+            # Regular URL → download
+            curl -fsSL "$ICON_URL" -o assets/icon.png
+            echo "✓ Icon downloaded from URL"
+          fi
+
+      # ── 5. Set splash screen ──────────────────────────────────
+      - name: Set splash screen
+        if: ${{ inputs.splash_url != '' }}
+        env:
+          SPLASH_URL: ${{ inputs.splash_url }}
+        run: |
+          if echo "$SPLASH_URL" | grep -q "^data:image"; then
+            echo "$SPLASH_URL" \
+              | sed 's/data:image\/[^;]*;base64,//' \
+              | base64 -d > assets/splash-icon.png
+            echo "✓ Splash decoded from base64"
+          else
+            curl -fsSL "$SPLASH_URL" -o assets/splash-icon.png
+            echo "✓ Splash downloaded from URL"
+          fi
+
+      # ── 6. Install dependencies ───────────────────────────────
       - name: Install dependencies
         run: npm ci
 
+      # ── 7. Expo prebuild ──────────────────────────────────────
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean
 
+      # ── 8. Inject permissions into AndroidManifest.xml ────────
+      - name: Inject Android permissions
+        env:
+          PERMISSIONS: ${{ inputs.permissions }}
+        run: |
+          python3 << 'PYEOF'
+          import os, re
+
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          permissions_input = os.environ.get("PERMISSIONS", "").strip()
+
+          PERMISSION_MAP = {
+              "notifications": ["android.permission.POST_NOTIFICATIONS"],
+              "camera":        ["android.permission.CAMERA"],
+              "microphone":    ["android.permission.RECORD_AUDIO"],
+              "location":      [
+                  "android.permission.ACCESS_FINE_LOCATION",
+                  "android.permission.ACCESS_COARSE_LOCATION",
+              ],
+              "storage":       [
+                  "android.permission.READ_MEDIA_IMAGES",
+                  "android.permission.READ_EXTERNAL_STORAGE",
+              ],
+              "contacts":      ["android.permission.READ_CONTACTS"],
+          }
+
+          manifest = open(manifest_path).read()
+          existing = set(re.findall(r'uses-permission android:name="([^"]+)"', manifest))
+
+          to_add = []
+          for key in permissions_input.split(","):
+              key = key.strip()
+              if key in PERMISSION_MAP:
+                  for perm in PERMISSION_MAP[key]:
+                      if perm not in existing:
+                          to_add.append(perm)
+
+          if to_add:
+              lines = "\n".join(
+                  f'    <uses-permission android:name="{p}"/>' for p in to_add
+              )
+              manifest = manifest.replace("</manifest>", f"{lines}\n</manifest>")
+              open(manifest_path, "w").write(manifest)
+              print(f"✓ Added {len(to_add)} permission(s): {to_add}")
+          else:
+              print("✓ No new permissions needed")
+          PYEOF
+
+      # ── 9. Build release APK ──────────────────────────────────
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleRelease
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: android/app/build/outputs/apk/release/app-release.apk
+      # ── 10. Upload APK to Cloudflare R2 ──────────────────────
+      - name: Upload APK to Cloudflare R2
+        id: upload
+        env:
+          R2_ACCOUNT_ID:        ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME:       ${{ secrets.R2_BUCKET_NAME }}
+          R2_PUBLIC_URL:        ${{ secrets.R2_PUBLIC_URL }}
+          BUILD_ID:             ${{ inputs.build_id }}
+        run: |
+          APK="android/app/build/outputs/apk/release/app-release.apk"
+          OBJECT_KEY="apks/${BUILD_ID}/app-release.apk"
+
+          AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" \
+          AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" \
+          aws s3 cp "${APK}" "s3://${R2_BUCKET_NAME}/${OBJECT_KEY}" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --region auto \
+            --no-progress
+
+          DOWNLOAD_URL="${R2_PUBLIC_URL}/${OBJECT_KEY}"
+          echo "DOWNLOAD_URL=${DOWNLOAD_URL}" >> "$GITHUB_ENV"
+          echo "✓ APK uploaded to R2 — ${DOWNLOAD_URL}"
+
+      # ── 11. Notify dashboard — success ────────────────────────
+      - name: Webhook — success
+        if: success()
+        env:
+          WEBHOOK_URL:    ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          BUILD_ID:       ${{ inputs.build_id }}
+        run: |
+          curl -fsSL -X POST "${WEBHOOK_URL}/api/webhook/build-complete" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${WEBHOOK_SECRET}" \
+            -d "{\"build_id\":\"${BUILD_ID}\",\"status\":\"success\",\"download_url\":\"${DOWNLOAD_URL}\"}"
+          echo "✓ Webhook notified — success"
+
+      # ── 12. Notify dashboard — failure ────────────────────────
+      - name: Webhook — failure
+        if: failure()
+        env:
+          WEBHOOK_URL:    ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          BUILD_ID:       ${{ inputs.build_id }}
+        run: |
+          curl -fsSL -X POST "${WEBHOOK_URL}/api/webhook/build-complete" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${WEBHOOK_SECRET}" \
+            -d "{\"build_id\":\"${BUILD_ID}\",\"status\":\"failed\",\"download_url\":\"\"}" || true
+          echo "✓ Webhook notified — failure"
