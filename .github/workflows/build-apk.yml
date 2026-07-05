@@ -81,7 +81,7 @@ jobs:
 
       # ── 4. Set app icon ───────────────────────────────────────
       - name: Set app icon
-        if: ${{ inputs.icon_url != '' }}
+        if: ${{ inputs.icon_url != '' && inputs.icon_url != 'null' }}
         env:
           ICON_URL: ${{ inputs.icon_url }}
         run: |
@@ -91,15 +91,17 @@ jobs:
               | sed 's/data:image\/[^;]*;base64,//' \
               | base64 -d > assets/icon.png
             echo "✓ Icon decoded from base64"
-          else
+          elif echo "$ICON_URL" | grep -q "^https\?://"; then
             # Regular URL → download
             curl -fsSL "$ICON_URL" -o assets/icon.png
             echo "✓ Icon downloaded from URL"
+          else
+            echo "⚠ Invalid icon URL format, using default icon"
           fi
 
       # ── 5. Set splash screen ──────────────────────────────────
       - name: Set splash screen
-        if: ${{ inputs.splash_url != '' }}
+        if: ${{ inputs.splash_url != '' && inputs.splash_url != 'null' }}
         env:
           SPLASH_URL: ${{ inputs.splash_url }}
         run: |
@@ -108,9 +110,11 @@ jobs:
               | sed 's/data:image\/[^;]*;base64,//' \
               | base64 -d > assets/splash-icon.png
             echo "✓ Splash decoded from base64"
-          else
+          elif echo "$SPLASH_URL" | grep -q "^https\?://"; then
             curl -fsSL "$SPLASH_URL" -o assets/splash-icon.png
             echo "✓ Splash downloaded from URL"
+          else
+            echo "⚠ Invalid splash URL format, using default splash"
           fi
 
       # ── 6. Install dependencies ───────────────────────────────
