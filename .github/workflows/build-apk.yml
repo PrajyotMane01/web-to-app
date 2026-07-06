@@ -19,6 +19,10 @@ on:
       build_id:
         description: "Dashboard build record ID — sent back in the webhook"
         required: true
+      google_services_json:
+        description: "Base64-encoded google-services.json (required when notifications permission is enabled)"
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -76,11 +80,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ── 5. Inject Firebase config ────────────────────────────────
-      - name: Write google-services.json
+      # ── 5. Firebase config ────────────────────────────────────────
+      - name: Configure Firebase (or strip if not enabled)
         env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: echo "$GOOGLE_SERVICES_JSON" | base64 -d > google-services.json
+          PERMISSIONS:          ${{ inputs.permissions }}
+          GOOGLE_SERVICES_JSON: ${{ inputs.google_services_json }}
+        run: |
+          node - << 'EOF'
+          const fs   = require("fs");
+          const perms = (process.env.PERMISSIONS || "").split(",").map(s => s.trim());
+          const gsJson = (process.env.GOOGLE_SERVICES_JSON || "").trim();
+
+          if (perms.includes("notifications") && gsJson) {
+            // Write google-services.json from the base64 input
+            fs.writeFileSync("google-services.json", Buffer.from(gsJson, "base64").toString("utf8"));
+            console.log("✓ google-services.json written from build input");
+          } else {
+            // Notifications not enabled — strip Firebase from the build
+            const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            app.expo.plugins = (app.expo.plugins || []).filter(p => p !== "@react-native-firebase/app");
+            if (app.expo.android) delete app.expo.android.googleServicesFile;
+            fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
+
+            // Remove notifications.js so Firebase is never imported
+            if (fs.existsSync("notifications.js")) fs.unlinkSync("notifications.js");
+
+            // Patch App.js to remove the useNotifications import and hook call
+            let appJs = fs.readFileSync("App.js", "utf8");
+            appJs = appJs.replace(/^import \{ useNotifications \} from '\.\/notifications';\n/m, "");
+            appJs = appJs.replace(/^  const \{ notificationUrl \} = useNotifications\(\);\n/m, "");
+            appJs = appJs.replace(/^  useEffect\(\(\) => \{\n    if \(notificationUrl\) setCurrentUrl\(notificationUrl\);\n  \}, \[notificationUrl\]\);\n/m, "");
+            fs.writeFileSync("App.js", appJs);
+
+            console.log("✓ Firebase stripped — notifications not enabled for this build");
+          }
+          EOF
 
       # ── 6. Expo prebuild ──────────────────────────────────────
       - name: Generate Android project
