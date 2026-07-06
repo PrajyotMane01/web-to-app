@@ -23,6 +23,13 @@ on:
         description: "Base64-encoded google-services.json (required when notifications permission is enabled)"
         required: false
         default: ""
+      icon_url:
+        description: "Public R2 URL of the app icon (downloaded into the build)"
+        required: true
+      splash_url:
+        description: "Public R2 URL of the splash screen (optional)"
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -45,6 +52,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Setup Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -73,14 +83,48 @@ jobs:
           app.expo.android.intentFilters = [];
           fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
           console.log("✓ config.js and app.json patched");
-          console.log("✓ Using default icon and splash from template");
           EOF
 
-      # ── 4. Install dependencies ───────────────────────────────
+      # ── 4. Download icon and splash from R2 ──────────────────
+      - name: Download icon and splash
+        env:
+          ICON_URL:   ${{ inputs.icon_url }}
+          SPLASH_URL: ${{ inputs.splash_url }}
+        run: |
+          mkdir -p assets
+
+          curl -fsSL "$ICON_URL" -o assets/user-icon.png
+          echo "✓ Icon downloaded from R2"
+
+          if [ -n "$SPLASH_URL" ]; then
+            curl -fsSL "$SPLASH_URL" -o assets/user-splash.png
+            echo "✓ Splash downloaded from R2"
+          fi
+
+          node - << 'EOF'
+          const fs = require("fs");
+          const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+
+          app.expo.icon = "./assets/user-icon.png";
+          if (!app.expo.android) app.expo.android = {};
+          if (!app.expo.android.adaptiveIcon) app.expo.android.adaptiveIcon = {};
+          app.expo.android.adaptiveIcon.foregroundImage = "./assets/user-icon.png";
+
+          const hasSplash = (process.env.SPLASH_URL || "").trim() !== "";
+          if (hasSplash) {
+            if (!app.expo.splash) app.expo.splash = {};
+            app.expo.splash.image = "./assets/user-splash.png";
+          }
+
+          fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
+          console.log("✓ app.json updated with custom icon" + (hasSplash ? " and splash" : ""));
+          EOF
+
+      # ── 5. Install dependencies ───────────────────────────────
       - name: Install dependencies
         run: npm ci
 
-      # ── 5. Firebase config ────────────────────────────────────────
+      # ── 6. Firebase config ────────────────────────────────────────
       - name: Configure Firebase (or strip if not enabled)
         env:
           PERMISSIONS:          ${{ inputs.permissions }}
@@ -162,11 +206,11 @@ jobs:
           }
           EOF
 
-      # ── 6. Expo prebuild ──────────────────────────────────────
+      # ── 7. Expo prebuild ──────────────────────────────────────
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean
 
-      # ── 7. Inject permissions into AndroidManifest.xml ────────
+      # ── 8. Inject permissions into AndroidManifest.xml ────────
       - name: Inject Android permissions
         env:
           PERMISSIONS: ${{ inputs.permissions }}
@@ -213,12 +257,12 @@ jobs:
               print("✓ No new permissions needed")
           PYEOF
 
-      # ── 7. Build release APK ──────────────────────────────────
+      # ── 9. Build release APK ──────────────────────────────────
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleRelease
 
-      # ── 8. Upload APK to Cloudflare R2 ──────────────────────
+      # ── 10. Upload APK to Cloudflare R2 ──────────────────────
       - name: Upload APK to Cloudflare R2
         id: upload
         env:
@@ -248,7 +292,7 @@ jobs:
           echo "SHA256_FINGERPRINT=${SHA256}" >> "$GITHUB_ENV"
           echo "✓ SHA256 fingerprint: ${SHA256}"
 
-      # ── 9. Notify dashboard — success ────────────────────────
+      # ── 11. Notify dashboard — success ────────────────────────
       - name: Webhook — success
         if: success()
         env:
@@ -262,7 +306,7 @@ jobs:
             -d "{\"build_id\":\"${BUILD_ID}\",\"status\":\"success\",\"download_url\":\"${DOWNLOAD_URL}\",\"sha256_fingerprint\":\"${SHA256_FINGERPRINT}\"}"
           echo "✓ Webhook notified — success"
 
-      # ── 10. Notify dashboard — failure ────────────────────────
+      # ── 12. Notify dashboard — failure ────────────────────────
       - name: Webhook — failure
         if: failure()
         env:
