@@ -5,11 +5,17 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useRef, useEffect } from 'react';
 import * as Linking from 'expo-linking';
 import { config } from './config';
+import { useNotifications } from './notifications';
 
 export default function App() {
   const [error, setError] = useState(null);
   const [currentUrl, setCurrentUrl] = useState(config.webViewUrl);
   const webViewRef = useRef(null);
+  const { notificationUrl } = useNotifications();
+
+  useEffect(() => {
+    if (notificationUrl) setCurrentUrl(notificationUrl);
+  }, [notificationUrl]);
 
   const webViewUrl = config.webViewUrl;
 
