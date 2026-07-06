@@ -13,7 +13,7 @@ on:
         description: "Website URL to wrap"
         required: true
       permissions:
-        description: "Comma-separated permission keys (camera,location,microphone,notifications,storage,contacts)"
+        description: "Comma-separated permission keys (camera,location,microphone,notifications,storage)"
         required: false
         default: ""
       build_id:
@@ -114,6 +114,52 @@ jobs:
 
             console.log("✓ Firebase stripped — notifications not enabled for this build");
           }
+
+          // ── Camera ──────────────────────────────────────────────
+          if (!perms.includes("camera")) {
+            if (fs.existsSync("camera.js")) fs.unlinkSync("camera.js");
+            let appJs = fs.readFileSync("App.js", "utf8");
+            appJs = appJs.replace(/^import \{ handleCameraRequest \} from '\.\/camera';\n/m, "");
+            appJs = appJs.replace(/^      handleCameraRequest\(request\.resources\),\n/m, "");
+            fs.writeFileSync("App.js", appJs);
+            console.log("✓ Camera stripped — camera not enabled for this build");
+          }
+
+          // ── Microphone ───────────────────────────────────────────
+          if (!perms.includes("microphone")) {
+            if (fs.existsSync("microphone.js")) fs.unlinkSync("microphone.js");
+            let appJs = fs.readFileSync("App.js", "utf8");
+            appJs = appJs.replace(/^import \{ handleMicrophoneRequest \} from '\.\/microphone';\n/m, "");
+            appJs = appJs.replace(/^      handleMicrophoneRequest\(request\.resources\),\n/m, "");
+            fs.writeFileSync("App.js", appJs);
+            console.log("✓ Microphone stripped — microphone not enabled for this build");
+          }
+
+          // ── Location ─────────────────────────────────────────────
+          if (!perms.includes("location")) {
+            if (fs.existsSync("location.js")) fs.unlinkSync("location.js");
+            let appJs = fs.readFileSync("App.js", "utf8");
+            appJs = appJs.replace(/^import \{ handleLocationRequest \} from '\.\/location';\n/m, "");
+            appJs = appJs.replace(/^      handleLocationRequest\(request\.resources\),\n/m, "");
+            appJs = appJs.replace(/^          geolocationEnabled=\{true\}\n/m, "");
+            fs.writeFileSync("App.js", appJs);
+            console.log("✓ Location stripped — location not enabled for this build");
+          }
+
+          // ── Storage / Photo Library ──────────────────────────────
+          if (!perms.includes("storage")) {
+            if (fs.existsSync("storage.js")) fs.unlinkSync("storage.js");
+            console.log("✓ Storage stripped — photo library not enabled for this build");
+          }
+
+          // ── Strip WebView permission handler if nothing uses it ──
+          if (!perms.includes("camera") && !perms.includes("microphone") && !perms.includes("location")) {
+            let appJs = fs.readFileSync("App.js", "utf8");
+            appJs = appJs.replace(/\n  const handleWebViewPermission[\s\S]+?  \};\n/, "\n");
+            appJs = appJs.replace(/^          onPermissionRequest=\{handleWebViewPermission\}\n/m, "");
+            fs.writeFileSync("App.js", appJs);
+            console.log("✓ WebView permission handler removed — no permissions need it");
+          }
           EOF
 
       # ── 6. Expo prebuild ──────────────────────────────────────
@@ -143,7 +189,6 @@ jobs:
                   "android.permission.READ_MEDIA_IMAGES",
                   "android.permission.READ_EXTERNAL_STORAGE",
               ],
-              "contacts":      ["android.permission.READ_CONTACTS"],
           }
 
           manifest = open(manifest_path).read()
@@ -198,6 +243,11 @@ jobs:
           echo "DOWNLOAD_URL=${DOWNLOAD_URL}" >> "$GITHUB_ENV"
           echo "✓ APK uploaded to R2 — ${DOWNLOAD_URL}"
 
+          # Extract SHA256 fingerprint from the signed APK
+          SHA256=$(keytool -printcert -jarfile "${APK}" 2>/dev/null | grep "SHA256:" | sed 's/.*SHA256: //' | tr -d ' \n')
+          echo "SHA256_FINGERPRINT=${SHA256}" >> "$GITHUB_ENV"
+          echo "✓ SHA256 fingerprint: ${SHA256}"
+
       # ── 9. Notify dashboard — success ────────────────────────
       - name: Webhook — success
         if: success()
@@ -209,7 +259,7 @@ jobs:
           curl -fsSL -X POST "${WEBHOOK_URL}/api/webhook/build-complete" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${WEBHOOK_SECRET}" \
-            -d "{\"build_id\":\"${BUILD_ID}\",\"status\":\"success\",\"download_url\":\"${DOWNLOAD_URL}\"}"
+            -d "{\"build_id\":\"${BUILD_ID}\",\"status\":\"success\",\"download_url\":\"${DOWNLOAD_URL}\",\"sha256_fingerprint\":\"${SHA256_FINGERPRINT}\"}"
           echo "✓ Webhook notified — success"
 
       # ── 10. Notify dashboard — failure ────────────────────────

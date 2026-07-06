@@ -6,12 +6,24 @@ import { useState, useRef, useEffect } from 'react';
 import * as Linking from 'expo-linking';
 import { config } from './config';
 import { useNotifications } from './notifications';
+import { handleCameraRequest } from './camera';
+import { handleMicrophoneRequest } from './microphone';
+import { handleLocationRequest } from './location';
 
 export default function App() {
   const [error, setError] = useState(null);
   const [currentUrl, setCurrentUrl] = useState(config.webViewUrl);
   const webViewRef = useRef(null);
   const { notificationUrl } = useNotifications();
+
+  const handleWebViewPermission = async (request) => {
+    const granted = (await Promise.all([
+      handleCameraRequest(request.resources),
+      handleMicrophoneRequest(request.resources),
+      handleLocationRequest(request.resources),
+    ])).flat();
+    granted.length > 0 ? request.grant(granted) : request.deny();
+  };
 
   useEffect(() => {
     if (notificationUrl) setCurrentUrl(notificationUrl);
@@ -78,6 +90,8 @@ export default function App() {
         <WebView
           ref={webViewRef}
           source={{ uri: currentUrl }}
+          onPermissionRequest={handleWebViewPermission}
+          geolocationEnabled={true}
           style={styles.webview}
           onError={handleError}
           javaScriptEnabled={true}

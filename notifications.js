@@ -1,15 +1,28 @@
 import messaging from '@react-native-firebase/messaging';
+import { Platform, PermissionsAndroid } from 'react-native';
 import { useEffect, useState } from 'react';
 
 function getUrlFromMessage(remoteMessage) {
   return remoteMessage?.data?.url || null;
 }
 
+async function requestPermission() {
+  if (Platform.OS === 'android') {
+    if (Platform.Version >= 33) {
+      await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
+      );
+    }
+  } else {
+    await messaging().requestPermission();
+  }
+}
+
 export function useNotifications() {
   const [notificationUrl, setNotificationUrl] = useState(null);
 
   useEffect(() => {
-    messaging().requestPermission().catch(() => {});
+    requestPermission().catch(() => {});
 
     messaging()
       .getToken()
