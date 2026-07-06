@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@react-native-firebase/app": "^25.1.0",
+    "@react-native-firebase/messaging": "^25.1.0",
     "expo": "~57.0.1",
     "expo-linking": "^57.0.1",
     "expo-status-bar": "~57.0.0",
