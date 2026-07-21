@@ -8,6 +8,9 @@ run-name: "Build ${{ inputs.app_name }} (${{ inputs.build_id }})"
 on:
   workflow_dispatch:
     inputs:
+      app_id:
+        description: "Dashboard app ID — used to serialize builds per app"
+        required: true
       app_name:
         description: "Display name of the app"
         required: true
@@ -55,6 +58,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Defense in depth alongside the dashboard's own "one build in flight
+    # per app" guard — GitHub itself won't run two builds for the same
+    # app concurrently even if that API-level check is ever bypassed.
+    concurrency:
+      group: build-${{ inputs.app_id }}
+      cancel-in-progress: false
 
     steps:
       # ── 1. Checkout ───────────────────────────────────────────
