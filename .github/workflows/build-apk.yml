@@ -322,7 +322,14 @@ jobs:
             echo "✓ Reusing this app's existing signing key"
           else
             STORE_PASSWORD=$(openssl rand -hex 16)
-            KEY_PASSWORD=$(openssl rand -hex 16)
+            # PKCS12 (keytool's default format since JDK 8u141, including
+            # Java 17 here) has no concept of a per-key password separate
+            # from the store password — keytool silently ignores -keypass
+            # when it differs and encrypts the key with storepass anyway,
+            # but build.gradle would still tell Gradle to decrypt with the
+            # (unused) different KEY_PASSWORD at sign time, failing with
+            # "Given final block not properly padded". Keep them identical.
+            KEY_PASSWORD="$STORE_PASSWORD"
             KEY_ALIAS="release-$(openssl rand -hex 4)"
             keytool -genkeypair -v \
               -keystore "$KEYSTORE_PATH" \
