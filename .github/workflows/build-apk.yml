@@ -1,5 +1,10 @@
 name: Build Android APK
 
+# Lets the dashboard match a workflow_dispatch back to the run it created —
+# the dispatch API responds 204 with no run ID, so it polls the runs list
+# and matches on this name instead of guessing "most recent run".
+run-name: "Build ${{ inputs.app_name }} (${{ inputs.build_id }})"
+
 on:
   workflow_dispatch:
     inputs:
@@ -30,6 +35,22 @@ on:
         description: "Public R2 URL of the splash screen (optional)"
         required: false
         default: ""
+      existing_keystore_base64:
+        description: "Base64-encoded release keystore from a previous build of this app (empty on first build)"
+        required: false
+        default: ""
+      existing_store_password:
+        description: "Store password for existing_keystore_base64"
+        required: false
+        default: ""
+      existing_key_password:
+        description: "Key password for existing_keystore_base64"
+        required: false
+        default: ""
+      existing_key_alias:
+        description: "Key alias for existing_keystore_base64"
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -55,6 +76,11 @@ jobs:
 
       - name: Setup Gradle (with caching)
         uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+          gradle-home-cache-includes: |
+            caches/modules-2
+            wrapper/dists
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -257,12 +283,129 @@ jobs:
               print("✓ No new permissions needed")
           PYEOF
 
-      # ── 9. Build release APK ──────────────────────────────────
+      # ── 9. Configure release signing ───────────────────────────
+      # Expo prebuild's generated build.gradle signs release builds with
+      # signingConfigs.debug — and since the runner is a fresh checkout
+      # with no cached ~/.android, Android Gradle Plugin auto-generates a
+      # brand-new random debug keystore on every single run. That makes
+      # every APK's signature different, so an update can never install
+      # over a previous version (Android rejects the signature mismatch).
+      # Fix: give the app a real, persistent release key. Reuse the one
+      # from a previous build if the dashboard sent one; otherwise
+      # generate a new one now and report it back in the success webhook
+      # so the dashboard can pass it in on the next build of this app.
+      - name: Configure release signing
+        env:
+          EXISTING_KEYSTORE_BASE64: ${{ inputs.existing_keystore_base64 }}
+          EXISTING_STORE_PASSWORD:  ${{ inputs.existing_store_password }}
+          EXISTING_KEY_PASSWORD:    ${{ inputs.existing_key_password }}
+          EXISTING_KEY_ALIAS:       ${{ inputs.existing_key_alias }}
+        run: |
+          set -e
+          KEYSTORE_PATH="android/app/release.keystore"
+
+          if [ -n "$EXISTING_KEYSTORE_BASE64" ]; then
+            echo "$EXISTING_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+            STORE_PASSWORD="$EXISTING_STORE_PASSWORD"
+            KEY_PASSWORD="$EXISTING_KEY_PASSWORD"
+            KEY_ALIAS="$EXISTING_KEY_ALIAS"
+            IS_NEW_KEYSTORE="false"
+            echo "✓ Reusing this app's existing signing key"
+          else
+            STORE_PASSWORD=$(openssl rand -hex 16)
+            KEY_PASSWORD=$(openssl rand -hex 16)
+            KEY_ALIAS="release-$(openssl rand -hex 4)"
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_PATH" \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$STORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              -dname "CN=Capsule,OU=Capsule,O=Capsule,L=Unknown,ST=Unknown,C=US" \
+              > /dev/null
+            IS_NEW_KEYSTORE="true"
+            echo "✓ Generated a new signing key for this app's first build"
+          fi
+
+          # Mask secrets so they never appear in step logs from here on
+          echo "::add-mask::${STORE_PASSWORD}"
+          echo "::add-mask::${KEY_PASSWORD}"
+
+          echo "STORE_PASSWORD=${STORE_PASSWORD}"     >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=${KEY_PASSWORD}"         >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=${KEY_ALIAS}"               >> "$GITHUB_ENV"
+          echo "IS_NEW_KEYSTORE=${IS_NEW_KEYSTORE}"   >> "$GITHUB_ENV"
+
+          if [ "$IS_NEW_KEYSTORE" = "true" ]; then
+            NEW_KEYSTORE_BASE64=$(base64 -w0 "$KEYSTORE_PATH")
+            echo "::add-mask::${NEW_KEYSTORE_BASE64}"
+            # Kept out of GITHUB_ENV (which shows up in the run's env
+            # dump) — written to a file only this job can read instead.
+            echo -n "$NEW_KEYSTORE_BASE64" > /tmp/new_keystore_base64.txt
+          fi
+
+          # Wire the release build type to this keystore instead of the
+          # debug one Expo's template defaults to.
+          python3 << 'PYEOF'
+          import re
+
+          path = "android/app/build.gradle"
+          content = open(path).read()
+
+          def find_block(text, needle):
+              """Return (open_brace_idx, close_brace_idx) for the {...} block
+              that immediately follows the first match of `needle`."""
+              m = re.search(needle, text)
+              if not m:
+                  raise ValueError(f"Could not find block starting with: {needle}")
+              open_idx = text.index("{", m.end() - 1)
+              depth = 0
+              i = open_idx
+              while i < len(text):
+                  if text[i] == "{":
+                      depth += 1
+                  elif text[i] == "}":
+                      depth -= 1
+                      if depth == 0:
+                          return open_idx, i
+                  i += 1
+              raise ValueError(f"Unbalanced braces for block: {needle}")
+
+          # 1. Add a `release` signing config next to the existing `debug` one.
+          sc_open, sc_close = find_block(content, r"signingConfigs\s*\{")
+          release_signing_config = (
+              "\n        release {\n"
+              "            storeFile file('release.keystore')\n"
+              "            storePassword System.getenv(\"STORE_PASSWORD\")\n"
+              "            keyAlias System.getenv(\"KEY_ALIAS\")\n"
+              "            keyPassword System.getenv(\"KEY_PASSWORD\")\n"
+              "        }\n    "
+          )
+          content = content[:sc_close] + release_signing_config + content[sc_close:]
+
+          # 2. Point buildTypes.release at signingConfigs.release instead of .debug.
+          bt_open, bt_close = find_block(content, r"buildTypes\s*\{")
+          build_types_block = content[bt_open:bt_close]
+          rel_open, rel_close = find_block(build_types_block, r"release\s*\{")
+          release_block = build_types_block[rel_open:rel_close]
+          patched_release_block = release_block.replace(
+              "signingConfig signingConfigs.debug", "signingConfig signingConfigs.release"
+          )
+          if patched_release_block == release_block:
+              raise ValueError("Did not find signingConfig signingConfigs.debug inside buildTypes.release — template may have changed")
+          build_types_block = build_types_block[:rel_open] + patched_release_block + build_types_block[rel_close:]
+          content = content[:bt_open] + build_types_block + content[bt_close:]
+
+          open(path, "w").write(content)
+          print("✓ build.gradle wired to the release signing config")
+          PYEOF
+
+      # ── 10. Build release APK ──────────────────────────────────
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleRelease
 
-      # ── 10. Upload APK to Cloudflare R2 ──────────────────────
+      # ── 11. Upload APK to Cloudflare R2 ───────────────────────
       - name: Upload APK to Cloudflare R2
         id: upload
         env:
@@ -292,21 +435,50 @@ jobs:
           echo "SHA256_FINGERPRINT=${SHA256}" >> "$GITHUB_ENV"
           echo "✓ SHA256 fingerprint: ${SHA256}"
 
-      # ── 11. Notify dashboard — success ────────────────────────
+      # ── 12. Notify dashboard — success ────────────────────────
+      # Only includes keystore fields when this build generated a brand
+      # new signing key (first build for this app) — the dashboard
+      # persists it so the next build reuses the same key.
       - name: Webhook — success
         if: success()
         env:
-          WEBHOOK_URL:    ${{ secrets.WEBHOOK_URL }}
-          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
-          BUILD_ID:       ${{ inputs.build_id }}
+          WEBHOOK_URL:      ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET:   ${{ secrets.WEBHOOK_SECRET }}
+          BUILD_ID:         ${{ inputs.build_id }}
+          IS_NEW_KEYSTORE:  ${{ env.IS_NEW_KEYSTORE }}
+          KEY_ALIAS:        ${{ env.KEY_ALIAS }}
+          STORE_PASSWORD:   ${{ env.STORE_PASSWORD }}
+          KEY_PASSWORD:     ${{ env.KEY_PASSWORD }}
         run: |
+          if [ "$IS_NEW_KEYSTORE" = "true" ]; then
+            NEW_KEYSTORE_BASE64=$(cat /tmp/new_keystore_base64.txt)
+            PAYLOAD=$(jq -n \
+              --arg build_id "$BUILD_ID" \
+              --arg download_url "$DOWNLOAD_URL" \
+              --arg sha256_fingerprint "$SHA256_FINGERPRINT" \
+              --arg keystore_base64 "$NEW_KEYSTORE_BASE64" \
+              --arg key_alias "$KEY_ALIAS" \
+              --arg store_password "$STORE_PASSWORD" \
+              --arg key_password "$KEY_PASSWORD" \
+              '{build_id: $build_id, status: "success", download_url: $download_url,
+                sha256_fingerprint: $sha256_fingerprint, keystore_base64: $keystore_base64,
+                key_alias: $key_alias, store_password: $store_password, key_password: $key_password}')
+          else
+            PAYLOAD=$(jq -n \
+              --arg build_id "$BUILD_ID" \
+              --arg download_url "$DOWNLOAD_URL" \
+              --arg sha256_fingerprint "$SHA256_FINGERPRINT" \
+              '{build_id: $build_id, status: "success", download_url: $download_url,
+                sha256_fingerprint: $sha256_fingerprint}')
+          fi
+
           curl -fsSL -X POST "${WEBHOOK_URL}/api/webhook/build-complete" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${WEBHOOK_SECRET}" \
-            -d "{\"build_id\":\"${BUILD_ID}\",\"status\":\"success\",\"download_url\":\"${DOWNLOAD_URL}\",\"sha256_fingerprint\":\"${SHA256_FINGERPRINT}\"}"
+            -d "$PAYLOAD"
           echo "✓ Webhook notified — success"
 
-      # ── 12. Notify dashboard — failure ────────────────────────
+      # ── 13. Notify dashboard — failure ────────────────────────
       - name: Webhook — failure
         if: failure()
         env:
