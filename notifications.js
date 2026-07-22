@@ -22,12 +22,22 @@ export function useNotifications() {
   const [notificationUrl, setNotificationUrl] = useState(null);
 
   useEffect(() => {
-    requestPermission().catch(() => {});
+    requestPermission()
+      .then(() => console.log('[FCM] Notification permission requested'))
+      .catch((err) => console.log('[FCM] requestPermission failed:', err?.message || err));
+
+    // Every install joins one broadcast topic — the dashboard sends pushes
+    // to this topic directly via the FCM v1 API, so there's no per-device
+    // token registry to keep in sync.
+    messaging()
+      .subscribeToTopic('all')
+      .then(() => console.log('[FCM] Subscribed to topic: all'))
+      .catch((err) => console.log('[FCM] subscribeToTopic failed:', err?.message || err));
 
     messaging()
       .getToken()
       .then((token) => console.log('[FCM] Token:', token))
-      .catch(() => {});
+      .catch((err) => console.log('[FCM] getToken failed:', err?.message || err));
 
     // App in background → user tapped notification
     const unsubscribeOpened = messaging().onNotificationOpenedApp((remoteMessage) => {
