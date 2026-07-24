@@ -15,7 +15,20 @@
       ]
     },
     "plugins": [
-      "@react-native-firebase/app"
+      "@react-native-firebase/app",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#ffffff",
+          "image": "./assets/icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#000000",
+            "image": "./assets/icon.png"
+          }
+        }
+      ]
     ],
     "android": {
       "googleServicesFile": "./google-services.json",

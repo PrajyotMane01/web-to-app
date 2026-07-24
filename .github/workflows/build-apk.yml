@@ -35,9 +35,21 @@ on:
         description: "Public R2 URL of the app icon (downloaded into the build)"
         required: true
       splash_url:
-        description: "Public R2 URL of the splash screen (optional)"
+        description: "Public R2 URL of the splash screen (optional, used when splash_type is 'custom')"
         required: false
         default: ""
+      splash_type:
+        description: "'auto' centers the app icon on a solid background, 'custom' uses splash_url as a full-screen image"
+        required: false
+        default: "custom"
+      splash_bg_light:
+        description: "Splash background color (light mode), used when splash_type is 'auto'"
+        required: false
+        default: "#ffffff"
+      splash_bg_dark:
+        description: "Splash background color (dark mode), used when splash_type is 'auto'"
+        required: false
+        default: "#000000"
       existing_keystore_base64:
         description: "Base64-encoded release keystore from a previous build of this app (empty on first build)"
         required: false
@@ -123,8 +135,11 @@ jobs:
       # ── 4. Download icon and splash from R2 ──────────────────
       - name: Download icon and splash
         env:
-          ICON_URL:   ${{ inputs.icon_url }}
-          SPLASH_URL: ${{ inputs.splash_url }}
+          ICON_URL:        ${{ inputs.icon_url }}
+          SPLASH_URL:      ${{ inputs.splash_url }}
+          SPLASH_TYPE:     ${{ inputs.splash_type }}
+          SPLASH_BG_LIGHT: ${{ inputs.splash_bg_light }}
+          SPLASH_BG_DARK:  ${{ inputs.splash_bg_dark }}
         run: |
           mkdir -p assets
 
@@ -145,14 +160,43 @@ jobs:
           if (!app.expo.android.adaptiveIcon) app.expo.android.adaptiveIcon = {};
           app.expo.android.adaptiveIcon.foregroundImage = "./assets/user-icon.png";
 
-          const hasSplash = (process.env.SPLASH_URL || "").trim() !== "";
-          if (hasSplash) {
-            if (!app.expo.splash) app.expo.splash = {};
-            app.expo.splash.image = "./assets/user-splash.png";
+          // Drop the template's placeholder expo-splash-screen entry — it's
+          // replaced below with one built from this build's actual inputs.
+          app.expo.plugins = (app.expo.plugins || []).filter((p) =>
+            !(p === "expo-splash-screen" || (Array.isArray(p) && p[0] === "expo-splash-screen"))
+          );
+
+          const splashType = (process.env.SPLASH_TYPE || "custom").trim();
+          const hasCustomSplash = (process.env.SPLASH_URL || "").trim() !== "";
+
+          if (splashType === "auto") {
+            // Solid background + centered app icon — no artwork to upload.
+            // Android's native splash (pre-JS) reads the light/dark variant
+            // straight from the OS night-mode setting, independent of the
+            // app's own userInterfaceStyle.
+            app.expo.plugins.push(["expo-splash-screen", {
+              backgroundColor: process.env.SPLASH_BG_LIGHT || "#ffffff",
+              image: "./assets/user-icon.png",
+              imageWidth: 200,
+              resizeMode: "contain",
+              dark: {
+                backgroundColor: process.env.SPLASH_BG_DARK || "#000000",
+                image: "./assets/user-icon.png",
+              },
+            }]);
+            console.log("✓ app.json updated with custom icon and automated splash");
+          } else if (hasCustomSplash) {
+            app.expo.plugins.push(["expo-splash-screen", {
+              backgroundColor: "#ffffff",
+              image: "./assets/user-splash.png",
+              resizeMode: "cover",
+            }]);
+            console.log("✓ app.json updated with custom icon and custom splash");
+          } else {
+            console.log("✓ app.json updated with custom icon (no splash configured)");
           }
 
           fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
-          console.log("✓ app.json updated with custom icon" + (hasSplash ? " and splash" : ""));
           EOF
 
       # ── 5. Install dependencies ───────────────────────────────
