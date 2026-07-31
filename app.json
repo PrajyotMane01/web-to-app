@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "scheme": "truckflow",
     "ios": {
       "supportsTablet": true,
@@ -16,6 +16,7 @@
     },
     "plugins": [
       "@react-native-firebase/app",
+      "expo-local-authentication",
       [
         "expo-splash-screen",
         {

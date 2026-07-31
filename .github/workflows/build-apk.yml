@@ -24,6 +24,26 @@ on:
         description: "Comma-separated permission keys (camera,location,microphone,notifications,storage)"
         required: false
         default: ""
+      pinch_zoom:
+        description: "'true' enables native pinch-to-zoom on the WebView, 'false' disables it"
+        required: false
+        default: "true"
+      allowed_domains:
+        description: "Comma-separated extra hostnames allowed to load inline in the WebView (besides the site's own domain)"
+        required: false
+        default: ""
+      bottom_nav_enabled:
+        description: "'true' shows a native bottom tab bar"
+        required: false
+        default: "false"
+      bottom_nav_tabs:
+        description: "JSON array of { label, url } tabs for the bottom nav bar (up to 5)"
+        required: false
+        default: "[]"
+      app_lock_enabled:
+        description: "'true' requires Face/Fingerprint/device PIN before showing the app's content"
+        required: false
+        default: "false"
       build_id:
         description: "Dashboard build record ID — sent back in the webhook"
         required: true
@@ -41,7 +61,7 @@ on:
       splash_type:
         description: "'auto' centers the app icon on a solid background, 'custom' uses splash_url as a full-screen image"
         required: false
-        default: "custom"
+        default: "auto"
       splash_bg_light:
         description: "Splash background color (light mode), used when splash_type is 'auto'"
         required: false
@@ -109,16 +129,40 @@ jobs:
       # ── 3. Inject app config ──────────────────────────────────
       - name: Patch config.js and app.json
         env:
-          APP_NAME:     ${{ inputs.app_name }}
-          APP_URL:      ${{ inputs.url }}
-          PACKAGE_NAME: ${{ inputs.package_name }}
+          APP_NAME:          ${{ inputs.app_name }}
+          APP_URL:           ${{ inputs.url }}
+          PACKAGE_NAME:      ${{ inputs.package_name }}
+          PINCH_ZOOM:        ${{ inputs.pinch_zoom }}
+          ALLOWED_DOMAINS:   ${{ inputs.allowed_domains }}
+          BOTTOM_NAV_ENABLED: ${{ inputs.bottom_nav_enabled }}
+          BOTTOM_NAV_TABS:    ${{ inputs.bottom_nav_tabs }}
+          APP_LOCK_ENABLED:   ${{ inputs.app_lock_enabled }}
         run: |
           node - << 'EOF'
           const fs = require("fs");
 
-          // config.js — sets the WebView URL
+          // config.js — sets the WebView URL and per-app behavior flags
+          const pinchZoomEnabled = (process.env.PINCH_ZOOM || "true").trim() !== "false";
+          const allowedDomains = (process.env.ALLOWED_DOMAINS || "")
+            .split(",")
+            .map((d) => d.trim())
+            .filter(Boolean);
+          const bottomNavEnabled = (process.env.BOTTOM_NAV_ENABLED || "false").trim() === "true";
+          let bottomNavTabs = [];
+          try {
+            bottomNavTabs = JSON.parse(process.env.BOTTOM_NAV_TABS || "[]");
+          } catch {
+            console.log("⚠ Could not parse BOTTOM_NAV_TABS, defaulting to no tabs");
+          }
+          const appLockEnabled = (process.env.APP_LOCK_ENABLED || "false").trim() === "true";
           fs.writeFileSync("config.js",
-            `export const config = {\n  webViewUrl: ${JSON.stringify(process.env.APP_URL)},\n};\n`
+            `export const config = {\n` +
+            `  webViewUrl: ${JSON.stringify(process.env.APP_URL)},\n` +
+            `  pinchZoomEnabled: ${pinchZoomEnabled},\n` +
+            `  allowedDomains: ${JSON.stringify(allowedDomains)},\n` +
+            `  bottomNav: ${JSON.stringify({ enabled: bottomNavEnabled, tabs: bottomNavTabs })},\n` +
+            `  appLockEnabled: ${appLockEnabled},\n` +
+            `};\n`
           );
 
           // app.json — sets display name + package name
@@ -166,7 +210,7 @@ jobs:
             !(p === "expo-splash-screen" || (Array.isArray(p) && p[0] === "expo-splash-screen"))
           );
 
-          const splashType = (process.env.SPLASH_TYPE || "custom").trim();
+          const splashType = (process.env.SPLASH_TYPE || "auto").trim();
           const hasCustomSplash = (process.env.SPLASH_URL || "").trim() !== "";
 
           if (splashType === "auto") {
