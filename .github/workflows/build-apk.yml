@@ -252,11 +252,13 @@ jobs:
         env:
           PERMISSIONS:          ${{ inputs.permissions }}
           GOOGLE_SERVICES_JSON: ${{ inputs.google_services_json }}
+          APP_LOCK_ENABLED:     ${{ inputs.app_lock_enabled }}
         run: |
           node - << 'EOF'
           const fs   = require("fs");
           const perms = (process.env.PERMISSIONS || "").split(",").map(s => s.trim());
           const gsJson = (process.env.GOOGLE_SERVICES_JSON || "").trim();
+          const appLockEnabled = (process.env.APP_LOCK_ENABLED || "false").trim() === "true";
 
           if (perms.includes("notifications") && gsJson) {
             // Write google-services.json from the base64 input
@@ -311,6 +313,19 @@ jobs:
             appJs = appJs.replace(/^          geolocationEnabled=\{true\}\n/m, "");
             fs.writeFileSync("App.js", appJs);
             console.log("✓ Location stripped — location not enabled for this build");
+          }
+
+          // ── App Lock ─────────────────────────────────────────────
+          // Unlike the runtime-only config.appLockEnabled flag, the
+          // expo-local-authentication plugin previously stayed in every
+          // build's app.json regardless of this toggle — so the native
+          // module got compiled in even for builds with App Lock off.
+          // Strip it the same way Firebase gets stripped when unused.
+          if (!appLockEnabled) {
+            const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            app.expo.plugins = (app.expo.plugins || []).filter(p => p !== "expo-local-authentication");
+            fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
+            console.log("✓ expo-local-authentication stripped — App Lock not enabled for this build");
           }
 
           // ── Storage / Photo Library ──────────────────────────────

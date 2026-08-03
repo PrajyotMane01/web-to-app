@@ -19,9 +19,16 @@ function useAppLock(enabled) {
   const [locked, setLocked] = useState(enabled);
   const [checking, setChecking] = useState(false);
   const appStateRef = useRef(AppState.currentState);
+  const inFlightRef = useRef(false);
 
   const tryUnlock = useCallback(async () => {
-    if (!enabled) return;
+    // Android can fire a spurious AppState 'change' event right at cold
+    // start (before appStateRef's initial value has settled to 'active'),
+    // which would otherwise trigger a second, overlapping authenticateAsync()
+    // call while the first (from the mount effect) is still pending —
+    // calling it twice concurrently can throw natively and crash the app.
+    if (!enabled || inFlightRef.current) return;
+    inFlightRef.current = true;
     setChecking(true);
     try {
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
@@ -39,6 +46,7 @@ function useAppLock(enabled) {
       setLocked(!result.success);
     } finally {
       setChecking(false);
+      inFlightRef.current = false;
     }
   }, [enabled]);
 
