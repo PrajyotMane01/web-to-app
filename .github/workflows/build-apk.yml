@@ -338,7 +338,7 @@ jobs:
           if (!perms.includes("camera") && !perms.includes("microphone") && !perms.includes("location")) {
             let appJs = fs.readFileSync("App.js", "utf8");
             appJs = appJs.replace(/\n  const handleWebViewPermission[\s\S]+?  \};\n/, "\n");
-            appJs = appJs.replace(/^          onPermissionRequest=\{handleWebViewPermission\}\n/m, "");
+            appJs = appJs.replace(/^ *onPermissionRequest=\{handleWebViewPermission\}\n/m, "");
             fs.writeFileSync("App.js", appJs);
             console.log("✓ WebView permission handler removed — no permissions need it");
           }
