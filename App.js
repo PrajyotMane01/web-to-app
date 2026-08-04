@@ -15,11 +15,22 @@ import { handleLocationRequest } from './location';
 // Requires Face/Fingerprint/device PIN before showing the app's content,
 // and again whenever the app returns from the background — re-checked on
 // every AppState transition rather than once at cold start.
+//
+// Below this grace period, a return to 'active' is treated as a brief
+// hand-off rather than the user actually leaving — e.g. a password
+// manager opening as its own app to autofill a field, or approving a
+// Google 2FA prompt via "yes it's me" on the same device. Both of those
+// pause this app's Activity just like switching away for real does, so
+// without a grace window every such hand-off would re-lock the app mid
+// login flow.
+const LOCK_GRACE_PERIOD_MS = 15000;
+
 function useAppLock(enabled) {
   const [locked, setLocked] = useState(enabled);
   const [checking, setChecking] = useState(false);
   const appStateRef = useRef(AppState.currentState);
   const inFlightRef = useRef(false);
+  const backgroundedAtRef = useRef(null);
 
   const tryUnlock = useCallback(async () => {
     // Android can fire a spurious AppState 'change' event right at cold
@@ -58,8 +69,14 @@ function useAppLock(enabled) {
     if (!enabled) return;
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
-        setLocked(true);
-        tryUnlock();
+        const awayMs = backgroundedAtRef.current ? Date.now() - backgroundedAtRef.current : Infinity;
+        if (awayMs > LOCK_GRACE_PERIOD_MS) {
+          setLocked(true);
+          tryUnlock();
+        }
+        backgroundedAtRef.current = null;
+      } else if (nextState.match(/inactive|background/)) {
+        backgroundedAtRef.current = Date.now();
       }
       appStateRef.current = nextState;
     });
@@ -274,8 +291,12 @@ export default function App() {
     if (refreshing) setRefreshing(false);
   };
 
-  if (locked) {
-    return (
+  // Rendered as an overlay (below) rather than swapping it in as the whole
+  // tree, so the WebView underneath stays mounted through a lock — losing
+  // it here would nuke any in-progress page state (e.g. a mid-flow Google
+  // login/2FA) and dump the user back at the start URL on unlock.
+  const lockOverlay = locked && (
+    <View style={styles.lockOverlay}>
       <SafeAreaProvider>
         <SafeAreaView style={[styles.errorContainer, isDark && styles.errorContainerDark]}>
           <Text style={styles.errorIcon}>🔒</Text>
@@ -288,8 +309,8 @@ export default function App() {
           </TouchableOpacity>
         </SafeAreaView>
       </SafeAreaProvider>
-    );
-  }
+    </View>
+  );
 
   if (error) {
     return (
@@ -308,6 +329,7 @@ export default function App() {
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </SafeAreaView>
+        {lockOverlay}
       </SafeAreaProvider>
     );
   }
@@ -399,6 +421,7 @@ export default function App() {
           </View>
         )}
       </SafeAreaView>
+      {lockOverlay}
     </SafeAreaProvider>
   );
 }
@@ -414,6 +437,10 @@ const styles = StyleSheet.create({
   webviewContainer: {
     flex: 1,
     overflow: 'hidden',
+  },
+  lockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
   },
   pullIndicator: {
     position: 'absolute',
