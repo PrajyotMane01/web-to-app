@@ -548,7 +548,12 @@ jobs:
       # packaging — well under a minute.
       - name: Build APK and AAB
         working-directory: android
-        run: ./gradlew assembleRelease bundleRelease
+        run: |
+          # Teed to a file so the failure webhook can hand the user the
+          # actual Gradle error instead of a bare "Failed". pipefail is
+          # what keeps tee from swallowing gradlew's exit code.
+          set -o pipefail
+          ./gradlew assembleRelease bundleRelease 2>&1 | tee /tmp/build.log
 
       # ── 11. Upload APK + AAB to Cloudflare R2 ─────────────────
       - name: Upload APK and AAB to Cloudflare R2
@@ -653,9 +658,34 @@ jobs:
           WEBHOOK_URL:    ${{ secrets.WEBHOOK_URL }}
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           BUILD_ID:       ${{ inputs.build_id }}
+          STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
+          KEY_PASSWORD:   ${{ env.KEY_PASSWORD }}
         run: |
+          # The tail is where Gradle prints "FAILURE:" and the actual
+          # cause; the preceding few thousand lines are task noise nobody
+          # reads. Capped by bytes as well as lines because a single
+          # stack trace line can be enormous.
+          if [ -f /tmp/build.log ]; then
+            LOGS=$(tail -n 200 /tmp/build.log | tail -c 15000)
+          else
+            LOGS="The build failed before Gradle started — usually while fetching the icon or splash image, or during Expo prebuild. Nothing was compiled."
+          fi
+
+          # Belt and braces. Gradle has no reason to echo the signing
+          # passwords, but this log is about to be shown in a browser, so
+          # it is not the place to find out we were wrong.
+          [ -n "$STORE_PASSWORD" ] && LOGS=${LOGS//"$STORE_PASSWORD"/***REDACTED***}
+          [ -n "$KEY_PASSWORD" ]   && LOGS=${LOGS//"$KEY_PASSWORD"/***REDACTED***}
+
+          # jq builds the JSON so newlines, quotes and backslashes in the
+          # log can't break the payload.
+          PAYLOAD=$(jq -n \
+            --arg build_id "$BUILD_ID" \
+            --arg logs "$LOGS" \
+            '{build_id: $build_id, status: "failed", download_url: "", logs: $logs}')
+
           curl -fsSL -X POST "${WEBHOOK_URL}/api/webhook/build-complete" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${WEBHOOK_SECRET}" \
-            -d "{\"build_id\":\"${BUILD_ID}\",\"status\":\"failed\",\"download_url\":\"\"}" || true
+            -d "$PAYLOAD" || true
           echo "✓ Webhook notified — failure"
