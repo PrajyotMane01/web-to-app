@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK + AAB
 
 # Lets the dashboard match a workflow_dispatch back to the run it created —
 # the dispatch API responds 204 with no run ID, so it polls the runs list
@@ -47,6 +47,14 @@ on:
       build_id:
         description: "Dashboard build record ID — sent back in the webhook"
         required: true
+      version_code:
+        description: "Android versionCode for this build — monotonic per app, Play rejects re-used values"
+        required: false
+        default: "1"
+      version_name:
+        description: "User-visible version string (e.g. 1.0.3)"
+        required: false
+        default: "1.0.0"
       google_services_json:
         description: "Base64-encoded google-services.json (required when notifications permission is enabled)"
         required: false
@@ -137,6 +145,8 @@ jobs:
           BOTTOM_NAV_ENABLED: ${{ inputs.bottom_nav_enabled }}
           BOTTOM_NAV_TABS:    ${{ inputs.bottom_nav_tabs }}
           APP_LOCK_ENABLED:   ${{ inputs.app_lock_enabled }}
+          VERSION_CODE:       ${{ inputs.version_code }}
+          VERSION_NAME:       ${{ inputs.version_name }}
         run: |
           node - << 'EOF'
           const fs = require("fs");
@@ -170,10 +180,20 @@ jobs:
           app.expo.name                = process.env.APP_NAME;
           app.expo.android             = app.expo.android || {};
           app.expo.android.package     = process.env.PACKAGE_NAME;
+          // Version — `expo prebuild` copies these straight into
+          // android/app/build.gradle as versionCode/versionName. The
+          // dashboard hands out a fresh versionCode per build because
+          // Play permanently refuses an upload re-using an old one.
+          const versionCode = parseInt(process.env.VERSION_CODE || "1", 10);
+          if (!Number.isInteger(versionCode) || versionCode < 1) {
+            throw new Error(`Invalid version_code: ${process.env.VERSION_CODE}`);
+          }
+          app.expo.version             = process.env.VERSION_NAME || "1.0.0";
+          app.expo.android.versionCode = versionCode;
           // Clear deep-link intent filters — they belong to the original project
           app.expo.android.intentFilters = [];
           fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
-          console.log("✓ config.js and app.json patched");
+          console.log(`✓ config.js and app.json patched (v${app.expo.version}, versionCode ${versionCode})`);
           EOF
 
       # ── 4. Download icon and splash from R2 ──────────────────
@@ -519,13 +539,19 @@ jobs:
           print("✓ build.gradle wired to the release signing config")
           PYEOF
 
-      # ── 10. Build release APK ──────────────────────────────────
-      - name: Build APK
+      # ── 10. Build release APK + AAB ────────────────────────────
+      # Both in one Gradle invocation on purpose: the expensive work
+      # (JS bundle, javac, dexing, merged resources) is shared between
+      # the two tasks and only runs once. Splitting this into two steps
+      # would re-run configuration and lose that sharing. The extra cost
+      # over the APK alone is proto resource linking plus bundle
+      # packaging — well under a minute.
+      - name: Build APK and AAB
         working-directory: android
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease bundleRelease
 
-      # ── 11. Upload APK to Cloudflare R2 ───────────────────────
-      - name: Upload APK to Cloudflare R2
+      # ── 11. Upload APK + AAB to Cloudflare R2 ─────────────────
+      - name: Upload APK and AAB to Cloudflare R2
         id: upload
         env:
           R2_ACCOUNT_ID:        ${{ secrets.R2_ACCOUNT_ID }}
@@ -535,19 +561,38 @@ jobs:
           R2_PUBLIC_URL:        ${{ secrets.R2_PUBLIC_URL }}
           BUILD_ID:             ${{ inputs.build_id }}
         run: |
+          set -e
+          export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}"
+          export AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}"
+
+          upload() {
+            aws s3 cp "$1" "s3://${R2_BUCKET_NAME}/$2" \
+              --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+              --region auto \
+              --no-progress
+          }
+
           APK="android/app/build/outputs/apk/release/app-release.apk"
-          OBJECT_KEY="apks/${BUILD_ID}/app-release.apk"
-
-          AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}" \
-          AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}" \
-          aws s3 cp "${APK}" "s3://${R2_BUCKET_NAME}/${OBJECT_KEY}" \
-            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-            --region auto \
-            --no-progress
-
-          DOWNLOAD_URL="${R2_PUBLIC_URL}/${OBJECT_KEY}"
+          APK_KEY="apks/${BUILD_ID}/app-release.apk"
+          upload "${APK}" "${APK_KEY}"
+          DOWNLOAD_URL="${R2_PUBLIC_URL}/${APK_KEY}"
           echo "DOWNLOAD_URL=${DOWNLOAD_URL}" >> "$GITHUB_ENV"
           echo "✓ APK uploaded to R2 — ${DOWNLOAD_URL}"
+
+          # The AAB is for uploading to Play. Treated as best-effort: if
+          # the bundle is missing the APK build still stands on its own,
+          # and the dashboard simply won't offer an AAB download.
+          AAB="android/app/build/outputs/bundle/release/app-release.aab"
+          if [ -f "${AAB}" ]; then
+            AAB_KEY="apks/${BUILD_ID}/app-release.aab"
+            upload "${AAB}" "${AAB_KEY}"
+            AAB_DOWNLOAD_URL="${R2_PUBLIC_URL}/${AAB_KEY}"
+            echo "AAB_DOWNLOAD_URL=${AAB_DOWNLOAD_URL}" >> "$GITHUB_ENV"
+            echo "✓ AAB uploaded to R2 — ${AAB_DOWNLOAD_URL}"
+          else
+            echo "AAB_DOWNLOAD_URL=" >> "$GITHUB_ENV"
+            echo "⚠ No AAB at ${AAB} — continuing with the APK only"
+          fi
 
           # Extract SHA256 fingerprint from the signed APK
           SHA256=$(keytool -printcert -jarfile "${APK}" 2>/dev/null | grep "SHA256:" | sed 's/.*SHA256: //' | tr -d ' \n')
@@ -574,20 +619,24 @@ jobs:
             PAYLOAD=$(jq -n \
               --arg build_id "$BUILD_ID" \
               --arg download_url "$DOWNLOAD_URL" \
+              --arg aab_download_url "$AAB_DOWNLOAD_URL" \
               --arg sha256_fingerprint "$SHA256_FINGERPRINT" \
               --arg keystore_base64 "$NEW_KEYSTORE_BASE64" \
               --arg key_alias "$KEY_ALIAS" \
               --arg store_password "$STORE_PASSWORD" \
               --arg key_password "$KEY_PASSWORD" \
               '{build_id: $build_id, status: "success", download_url: $download_url,
+                aab_download_url: $aab_download_url,
                 sha256_fingerprint: $sha256_fingerprint, keystore_base64: $keystore_base64,
                 key_alias: $key_alias, store_password: $store_password, key_password: $key_password}')
           else
             PAYLOAD=$(jq -n \
               --arg build_id "$BUILD_ID" \
               --arg download_url "$DOWNLOAD_URL" \
+              --arg aab_download_url "$AAB_DOWNLOAD_URL" \
               --arg sha256_fingerprint "$SHA256_FINGERPRINT" \
               '{build_id: $build_id, status: "success", download_url: $download_url,
+                aab_download_url: $aab_download_url,
                 sha256_fingerprint: $sha256_fingerprint}')
           fi
 
