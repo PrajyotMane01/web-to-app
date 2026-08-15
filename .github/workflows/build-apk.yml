@@ -44,6 +44,14 @@ on:
         description: "'true' requires Face/Fingerprint/device PIN before showing the app's content"
         required: false
         default: "false"
+      custom_css:
+        description: "CSS injected into the wrapped site on every navigation (capped at 10KB by the dashboard)"
+        required: false
+        default: ""
+      custom_js:
+        description: "JavaScript injected into the wrapped site on every navigation (capped at 10KB by the dashboard)"
+        required: false
+        default: ""
       build_id:
         description: "Dashboard build record ID — sent back in the webhook"
         required: true
@@ -145,6 +153,8 @@ jobs:
           BOTTOM_NAV_ENABLED: ${{ inputs.bottom_nav_enabled }}
           BOTTOM_NAV_TABS:    ${{ inputs.bottom_nav_tabs }}
           APP_LOCK_ENABLED:   ${{ inputs.app_lock_enabled }}
+          CUSTOM_CSS:         ${{ inputs.custom_css }}
+          CUSTOM_JS:          ${{ inputs.custom_js }}
           VERSION_CODE:       ${{ inputs.version_code }}
           VERSION_NAME:       ${{ inputs.version_name }}
         run: |
@@ -165,6 +175,12 @@ jobs:
             console.log("⚠ Could not parse BOTTOM_NAV_TABS, defaulting to no tabs");
           }
           const appLockEnabled = (process.env.APP_LOCK_ENABLED || "false").trim() === "true";
+          // Not trimmed, and deliberately embedded with JSON.stringify: this
+          // is arbitrary user CSS/JS that will contain quotes, newlines,
+          // backslashes and backticks, any of which would otherwise break out
+          // of the generated literal and produce a config.js that won't parse.
+          const customCss = process.env.CUSTOM_CSS || "";
+          const customJs  = process.env.CUSTOM_JS  || "";
           fs.writeFileSync("config.js",
             `export const config = {\n` +
             `  webViewUrl: ${JSON.stringify(process.env.APP_URL)},\n` +
@@ -172,8 +188,11 @@ jobs:
             `  allowedDomains: ${JSON.stringify(allowedDomains)},\n` +
             `  bottomNav: ${JSON.stringify({ enabled: bottomNavEnabled, tabs: bottomNavTabs })},\n` +
             `  appLockEnabled: ${appLockEnabled},\n` +
+            `  customCss: ${JSON.stringify(customCss)},\n` +
+            `  customJs: ${JSON.stringify(customJs)},\n` +
             `};\n`
           );
+          console.log(`✓ custom CSS ${customCss.length} chars, custom JS ${customJs.length} chars`);
 
           // app.json — sets display name + package name
           const app = JSON.parse(fs.readFileSync("app.json", "utf8"));

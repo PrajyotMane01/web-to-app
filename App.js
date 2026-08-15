@@ -11,6 +11,67 @@ import { handleCameraRequest } from './camera';
 import { handleMicrophoneRequest } from './microphone';
 import { handleLocationRequest } from './location';
 
+// ── Custom CSS / JS injection ──────────────────────────────────────
+// The dashboard's "Appearance" settings, baked into config.js at build
+// time. This is what lets a site hide its own header, footer or cookie
+// bar so the wrap stops reading as a website in a frame.
+//
+// Both are embedded literally rather than run through eval/new Function:
+// a site with a strict Content-Security-Policy blocks unsafe-eval, and
+// silently losing every customisation on exactly the sites careful
+// enough to set a CSP would be a miserable bug to diagnose. The cost is
+// that a syntax error in the user's JS breaks the whole injected script,
+// which is why the dashboard parse-checks it before allowing a save.
+const STYLE_ID = 'capsule-custom-css';
+
+// Applied via injectedJavaScriptBeforeContentLoaded so the rules are in
+// place before the page paints — injecting after load produces a visible
+// flash of the very header the user is trying to hide.
+const buildCssInjection = (css) => `
+  (function () {
+    try {
+      if (document.getElementById(${JSON.stringify(STYLE_ID)})) return;
+      var style = document.createElement('style');
+      style.id = ${JSON.stringify(STYLE_ID)};
+      style.textContent = ${JSON.stringify(css)};
+      (document.head || document.documentElement).appendChild(style);
+    } catch (e) {}
+  })();
+  true;
+`;
+
+// Runs after the document is ready, so the user's JS can rely on the DOM
+// existing. The CSS is re-applied first: "before content loaded" fires
+// early enough that on some pages there is no <head> to attach to yet.
+const buildAfterLoadInjection = (css, js) => `
+  (function () {
+    try {
+      ${css ? `
+      if (!document.getElementById(${JSON.stringify(STYLE_ID)})) {
+        var style = document.createElement('style');
+        style.id = ${JSON.stringify(STYLE_ID)};
+        style.textContent = ${JSON.stringify(css)};
+        (document.head || document.documentElement).appendChild(style);
+      }` : ''}
+    } catch (e) {}
+    ${js ? `
+    try {
+      ${js}
+    } catch (e) {
+      console.error('[Capsule] Custom JS failed:', e);
+    }` : ''}
+  })();
+  true;
+`;
+
+const customCss = config.customCss || '';
+const customJs  = config.customJs  || '';
+// undefined rather than an empty script when there's nothing to inject —
+// react-native-webview skips the evaluate call entirely.
+const cssInjection = customCss ? buildCssInjection(customCss) : undefined;
+const afterLoadInjection =
+  customCss || customJs ? buildAfterLoadInjection(customCss, customJs) : undefined;
+
 // ── App lock ───────────────────────────────────────────────────────
 // Requires Face/Fingerprint/device PIN before showing the app's content,
 // and again whenever the app returns from the background — re-checked on
@@ -381,6 +442,8 @@ export default function App() {
               onNavigationStateChange={(navState) => {
                 canGoBackRef.current = navState.canGoBack;
               }}
+              injectedJavaScriptBeforeContentLoaded={cssInjection}
+              injectedJavaScript={afterLoadInjection}
               javaScriptEnabled={true}
               domStorageEnabled={true}
               scalesPageToFit={true}

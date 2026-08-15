@@ -29,4 +29,11 @@ export const config = {
     // and again whenever the app returns from the background. Overwritten
     // per build from the dashboard's "App Lock" toggle.
     appLockEnabled: false,
+
+    // CSS and JS injected into the loaded site on every navigation —
+    // typically used to hide the site's own header/footer/cookie bar so
+    // the app doesn't read as a website in a frame. Overwritten per build
+    // from the dashboard's "Appearance" settings.
+    customCss: '',
+    customJs: '',
 };
