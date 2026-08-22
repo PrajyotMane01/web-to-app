@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { config } from './config';
 import { useNotifications } from './notifications';
@@ -246,14 +247,19 @@ export default function App() {
   // opens in the system browser instead, so e.g. a random outbound link
   // doesn't silently trap the user inside the app's WebView.
   //
-  // Google's own OAuth domains are a fixed exception, always allowed inline
-  // regardless of the dashboard allowlist. Kicking accounts.google.com out
-  // to the system browser splits the login across two separate storage
-  // contexts (the WebView's cookies/session vs. the external browser's) —
-  // the site sets its OAuth state/PKCE value while still in the WebView,
-  // then the callback lands in a browser that never saw it, and Google
-  // rejects the token exchange with a generic "should not be retried" 400.
-  // Keeping the whole flow in one WebView keeps it one consistent session.
+  // Google's own OAuth domains are a fixed exception: Google has blocked
+  // sign-in from embedded WebViews since Sept 2021 (detected server-side,
+  // not just by sniffing the "wv" UA token — spoofing the UA does not get
+  // around it), so these can never load inline. They also can't go through
+  // the same plain Linking.openURL path as other external links: that opens
+  // a fully separate browser app with its own storage, so the site's
+  // OAuth state/session set while still in the WebView is invisible to the
+  // callback, and Google rejects the exchange with a generic "should not
+  // be retried" 400. Chrome Custom Tabs (via expo-web-browser) thread this
+  // needle — Google accepts them as a real browser, and because they run
+  // as Chrome they still share Android's cookie store with the WebView
+  // (sharedCookiesEnabled below), so a cookie-based session set during the
+  // Custom Tab flow is visible again once the WebView reloads the site.
   const GOOGLE_AUTH_HOSTS = [
     'accounts.google.com',
     'accounts.youtube.com',
@@ -261,9 +267,16 @@ export default function App() {
     'oauth2.googleapis.com',
   ];
 
+  const isGoogleAuthHost = (hostname) => {
+    const host = hostname.toLowerCase();
+    return GOOGLE_AUTH_HOSTS.some(
+      (allowed) => host === allowed || host.endsWith(`.${allowed}`)
+    );
+  };
+
   const allowedHostsRef = useRef(
     (() => {
-      const hosts = [...GOOGLE_AUTH_HOSTS, ...(config.allowedDomains || [])];
+      const hosts = [...(config.allowedDomains || [])];
       try {
         hosts.push(new URL(config.webViewUrl).hostname);
       } catch {
@@ -289,6 +302,11 @@ export default function App() {
       // Non-http(s) schemes (mailto:, tel:, intent:, etc.) — hand off to
       // the OS instead of letting the WebView try and fail to load them.
       Linking.openURL(request.url).catch(() => {});
+      return false;
+    }
+
+    if (isGoogleAuthHost(hostname)) {
+      WebBrowser.openBrowserAsync(request.url).catch(() => {});
       return false;
     }
 

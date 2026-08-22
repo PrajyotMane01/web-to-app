@@ -29,7 +29,8 @@
             "image": "./assets/icon.png"
           }
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "android": {
       "googleServicesFile": "./google-services.json",
