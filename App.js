@@ -245,9 +245,25 @@ export default function App() {
   // dashboard owner explicitly added it to the allowlist — otherwise it
   // opens in the system browser instead, so e.g. a random outbound link
   // doesn't silently trap the user inside the app's WebView.
+  //
+  // Google's own OAuth domains are a fixed exception, always allowed inline
+  // regardless of the dashboard allowlist. Kicking accounts.google.com out
+  // to the system browser splits the login across two separate storage
+  // contexts (the WebView's cookies/session vs. the external browser's) —
+  // the site sets its OAuth state/PKCE value while still in the WebView,
+  // then the callback lands in a browser that never saw it, and Google
+  // rejects the token exchange with a generic "should not be retried" 400.
+  // Keeping the whole flow in one WebView keeps it one consistent session.
+  const GOOGLE_AUTH_HOSTS = [
+    'accounts.google.com',
+    'accounts.youtube.com',
+    'content.googleapis.com',
+    'oauth2.googleapis.com',
+  ];
+
   const allowedHostsRef = useRef(
     (() => {
-      const hosts = [...(config.allowedDomains || [])];
+      const hosts = [...GOOGLE_AUTH_HOSTS, ...(config.allowedDomains || [])];
       try {
         hosts.push(new URL(config.webViewUrl).hostname);
       } catch {
