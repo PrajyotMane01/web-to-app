@@ -10,6 +10,16 @@ object AppConfig {
     const val CUSTOM_CSS = ""
     const val CUSTOM_JS = ""
 
+    // Driven by the dashboard's per-app permissions selection. Gates
+    // runtime behavior only — unlike the old Expo pipeline, nothing is
+    // stripped from the build itself, so an app with these off is a few
+    // KB larger but never asks for a permission or touches a device
+    // feature it doesn't need.
+    const val CAMERA_ENABLED = false
+    const val MICROPHONE_ENABLED = false
+    const val LOCATION_ENABLED = false
+    const val NOTIFICATIONS_ENABLED = false
+
     // The custom URL scheme this build's AndroidManifest.xml registers for
     // deep links (truckflow://...). Must match the manifest exactly — CI
     // patches both from the same package_name input, since a package name

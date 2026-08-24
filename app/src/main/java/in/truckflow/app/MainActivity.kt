@@ -3,6 +3,7 @@ package `in`.truckflow.app
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
@@ -12,6 +13,7 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -19,11 +21,20 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONObject
+
+// Maps a WebView permission resource to the Android runtime permission
+// that must be granted before we can hand it out, and to whether this
+// build's AppConfig actually wants it enabled at all.
+private val WEBVIEW_RESOURCE_PERMISSIONS = mapOf(
+    PermissionRequest.RESOURCE_VIDEO_CAPTURE to (Manifest.permission.CAMERA to { AppConfig.CAMERA_ENABLED }),
+    PermissionRequest.RESOURCE_AUDIO_CAPTURE to (Manifest.permission.RECORD_AUDIO to { AppConfig.MICROPHONE_ENABLED }),
+)
 
 // Every install subscribes to this one FCM topic — the dashboard sends
 // broadcast pushes straight to it, no per-device token registration.
@@ -75,13 +86,41 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way */ }
 
+    // A WebView PermissionRequest (camera/mic) currently waiting on an
+    // Android runtime permission result — resolved (granted or denied) once
+    // webMediaPermissionLauncher's callback runs.
+    private var pendingWebViewPermissionRequest: PermissionRequest? = null
+
+    private val webMediaPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            val request = pendingWebViewPermissionRequest ?: return@registerForActivityResult
+            pendingWebViewPermissionRequest = null
+            resolveWebViewPermissionRequest(request) { permission -> results[permission] == true }
+        }
+
+    // The geolocation permission prompt (WebChromeClient's own callback,
+    // separate from PermissionRequest above) waiting on a runtime result.
+    private var pendingGeolocationCallback: android.webkit.GeolocationPermissions.Callback? = null
+    private var pendingGeolocationOrigin: String? = null
+
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val callback = pendingGeolocationCallback
+            val origin = pendingGeolocationOrigin
+            pendingGeolocationCallback = null
+            pendingGeolocationOrigin = null
+            if (callback != null && origin != null) callback.invoke(origin, granted, false)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         applyStatusBarStyle()
-        requestNotificationPermissionIfNeeded()
-        FirebaseMessaging.getInstance().subscribeToTopic(FCM_TOPIC)
+        if (AppConfig.NOTIFICATIONS_ENABLED) {
+            requestNotificationPermissionIfNeeded()
+            FirebaseMessaging.getInstance().subscribeToTopic(FCM_TOPIC)
+        }
 
         CookieManager.getInstance().setAcceptCookie(true)
 
@@ -92,6 +131,7 @@ class MainActivity : AppCompatActivity() {
         webView.settings.setSupportMultipleWindows(true)
         webView.settings.builtInZoomControls = AppConfig.PINCH_ZOOM_ENABLED
         webView.settings.displayZoomControls = false
+        webView.settings.setGeolocationEnabled(AppConfig.LOCATION_ENABLED)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
         errorContainer = findViewById(R.id.error_container)
@@ -203,6 +243,27 @@ class MainActivity : AppCompatActivity() {
                 resultMsg.sendToTarget()
                 return true
             }
+
+            override fun onPermissionRequest(request: PermissionRequest) {
+                resolveWebViewPermissionRequest(request, ::hasPermission)
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String,
+                callback: android.webkit.GeolocationPermissions.Callback
+            ) {
+                if (!AppConfig.LOCATION_ENABLED) {
+                    callback.invoke(origin, false, false)
+                    return
+                }
+                if (hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                    callback.invoke(origin, true, false)
+                    return
+                }
+                pendingGeolocationCallback = callback
+                pendingGeolocationOrigin = origin
+                locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
         }
 
         webView.loadUrl(deepLinkUrl(intent) ?: notificationUrl(intent) ?: AppConfig.WEB_VIEW_URL)
@@ -235,6 +296,40 @@ class MainActivity : AppCompatActivity() {
                 .build()
                 .toString()
             else -> null
+        }
+    }
+
+    private fun hasPermission(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    // Grants whichever of the request's resources are both enabled for
+    // this build (AppConfig) and actually permitted right now, denies the
+    // rest, and kicks off a runtime permission request for anything
+    // enabled-but-not-yet-permitted (the caller re-invokes this once that
+    // resolves, via webMediaPermissionLauncher's callback).
+    private fun resolveWebViewPermissionRequest(
+        request: PermissionRequest,
+        isGranted: (String) -> Boolean
+    ) {
+        val relevant = request.resources.mapNotNull { WEBVIEW_RESOURCE_PERMISSIONS[it] }
+        val enabled = relevant.filter { (_, isEnabled) -> isEnabled() }
+        val toRequest = enabled.map { it.first }.filterNot(isGranted).distinct()
+
+        if (toRequest.isNotEmpty()) {
+            pendingWebViewPermissionRequest = request
+            webMediaPermissionLauncher.launch(toRequest.toTypedArray())
+            return
+        }
+
+        val grantedResources = request.resources.filter { resource ->
+            val mapping = WEBVIEW_RESOURCE_PERMISSIONS[resource] ?: return@filter false
+            val (permission, isEnabled) = mapping
+            isEnabled() && isGranted(permission)
+        }
+        if (grantedResources.isNotEmpty()) {
+            request.grant(grantedResources.toTypedArray())
+        } else {
+            request.deny()
         }
     }
 
