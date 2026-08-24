@@ -31,15 +31,6 @@ import org.json.JSONObject
 private const val FCM_TOPIC = "all"
 
 private const val TAG = "CapsuleTest"
-private const val BASE_URL = "https://app.capsule.nodemedia.in/"
-
-// Per-build customization (in the real pipeline these come from the
-// dashboard's app config, like webview-template/config.js). Edit directly
-// here for this test app — e.g. try:
-//   CUSTOM_CSS = "body { background: #111 !important; }"
-//   CUSTOM_JS  = "document.title = 'Hello from Capsule';"
-private const val CUSTOM_CSS = ""
-private const val CUSTOM_JS = ""
 
 private const val CUSTOM_CSS_ELEMENT_ID = "capsule-custom-css"
 
@@ -99,6 +90,8 @@ class MainActivity : AppCompatActivity() {
         webView.settings.domStorageEnabled = true
         webView.settings.databaseEnabled = true
         webView.settings.setSupportMultipleWindows(true)
+        webView.settings.builtInZoomControls = AppConfig.PINCH_ZOOM_ENABLED
+        webView.settings.displayZoomControls = false
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
         errorContainer = findViewById(R.id.error_container)
@@ -117,8 +110,8 @@ class MainActivity : AppCompatActivity() {
         // content for the custom CSS. Injected directly into the JS engine
         // rather than as a page-parsed <script> tag, so it isn't subject
         // to the site's own Content-Security-Policy either way.
-        if (CUSTOM_CSS.isNotEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(webView, cssInjectionScript(CUSTOM_CSS), setOf("*"))
+        if (AppConfig.CUSTOM_CSS.isNotEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(webView, cssInjectionScript(AppConfig.CUSTOM_CSS), setOf("*"))
         }
 
         // Everything, including Google login, loads inline in this WebView —
@@ -172,8 +165,8 @@ class MainActivity : AppCompatActivity() {
                 // builds without document-start-script support, and covers
                 // SPA client-side navigations that don't reload the
                 // document (so the start-script injection wouldn't rerun).
-                if (CUSTOM_CSS.isNotEmpty()) view.evaluateJavascript(cssInjectionScript(CUSTOM_CSS), null)
-                if (CUSTOM_JS.isNotEmpty()) view.evaluateJavascript(CUSTOM_JS, null)
+                if (AppConfig.CUSTOM_CSS.isNotEmpty()) view.evaluateJavascript(cssInjectionScript(AppConfig.CUSTOM_CSS), null)
+                if (AppConfig.CUSTOM_JS.isNotEmpty()) view.evaluateJavascript(AppConfig.CUSTOM_JS, null)
             }
         }
 
@@ -212,7 +205,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.loadUrl(deepLinkUrl(intent) ?: notificationUrl(intent) ?: BASE_URL)
+        webView.loadUrl(deepLinkUrl(intent) ?: notificationUrl(intent) ?: AppConfig.WEB_VIEW_URL)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -226,16 +219,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun notificationUrl(intent: Intent?): String? = intent?.getStringExtra("url")
 
-    // https://app.capsule.nodemedia.in/... (a verified App Link) loads as-is.
-    // truckflow://anything/path?query (the custom scheme) is remapped onto
-    // our own origin — the scheme's own host isn't trusted, only the
-    // path/query are kept, so a crafted truckflow://evil.com/x link still
-    // only ever lands on our real domain.
+    // https://<the site's domain>/... (a verified App Link) loads as-is.
+    // <scheme>://anything/path?query (the custom scheme, matching
+    // AppConfig.DEEP_LINK_SCHEME) is remapped onto our own origin — the
+    // scheme's own host isn't trusted, only the path/query are kept, so a
+    // crafted <scheme>://evil.com/x link still only ever lands on our
+    // real domain.
     private fun deepLinkUrl(intent: Intent?): String? {
         val uri = intent?.data ?: return null
         return when (uri.scheme) {
             "http", "https" -> uri.toString()
-            "truckflow" -> Uri.parse(BASE_URL).buildUpon()
+            AppConfig.DEEP_LINK_SCHEME -> Uri.parse(AppConfig.WEB_VIEW_URL).buildUpon()
                 .encodedPath(uri.path ?: "/")
                 .encodedQuery(uri.query)
                 .build()
