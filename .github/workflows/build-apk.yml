@@ -180,14 +180,8 @@ jobs:
           set -e
           mkdir -p app/src/main/res/drawable
           curl -fsSL "$ICON_URL" -o /tmp/icon_source
-          # The dashboard accepts whatever image format a customer
-          # uploads (jpg, webp, ...) — don't trust icon_url's own
-          # extension, always re-encode to a real PNG. AAPT2 rejects a
-          # file with a .png name whose bytes aren't actually PNG (that's
-          # exactly what broke the first real build: a customer's .jpg
-          # icon landing here unconverted).
-          convert /tmp/icon_source app/src/main/res/drawable/ic_launcher_foreground.png
-          echo "✓ Icon downloaded from R2 and normalized to PNG"
+          echo "✓ Icon downloaded from R2"
+          pip install --quiet --disable-pip-version-check pillow
           python3 .github/scripts/patch_icon.py
 
       # ── 7. Firebase config ──────────────────────────────────────

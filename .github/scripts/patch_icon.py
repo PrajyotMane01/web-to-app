@@ -1,11 +1,23 @@
-"""Patches the app name into strings.xml and points the adaptive icon at
-the icon downloaded by the workflow step (into
-app/src/main/res/drawable/ic_launcher_foreground.png) before this script
-runs. Run via `python3 .github/scripts/patch_icon.py` from the repo root.
-Reads APP_NAME from the environment.
+"""Patches the app name into strings.xml, and converts + points the
+adaptive icon at the icon the workflow step downloaded (into
+/tmp/icon_source, raw bytes exactly as the dashboard served them). Run
+via `python3 .github/scripts/patch_icon.py` from the repo root. Reads
+APP_NAME from the environment.
 """
 import os
 import re
+
+from PIL import Image
+
+# The dashboard accepts whatever image format a customer uploads (jpg,
+# webp, ...) — don't trust the source file's own format, always
+# re-encode to a real PNG. AAPT2 rejects a file named .png whose bytes
+# aren't actually PNG (that's exactly what broke the first real build: a
+# customer's .jpg icon landing here unconverted).
+Image.open("/tmp/icon_source").convert("RGBA").save(
+    "app/src/main/res/drawable/ic_launcher_foreground.png"
+)
+print("✓ Icon normalized to PNG")
 
 path = "app/src/main/res/values/strings.xml"
 strings = open(path).read()
