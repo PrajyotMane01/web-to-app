@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.CapsuleTest" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>
