@@ -29,19 +29,19 @@ on:
         required: false
         default: "true"
       allowed_domains:
-        description: "Comma-separated extra hostnames allowed to load inline in the WebView (besides the site's own domain)"
+        description: "Unused by the native app (kept only so the dashboard's existing input isn't rejected) — see AppConfig.kt/MainActivity.kt for the fixed blocklist this app actually uses"
         required: false
         default: ""
       bottom_nav_enabled:
-        description: "'true' shows a native bottom tab bar"
+        description: "Not yet implemented in the native app — accepted but unused"
         required: false
         default: "false"
       bottom_nav_tabs:
-        description: "JSON array of { label, url } tabs for the bottom nav bar (up to 5)"
+        description: "Not yet implemented in the native app — accepted but unused"
         required: false
         default: "[]"
       app_lock_enabled:
-        description: "'true' requires Face/Fingerprint/device PIN before showing the app's content"
+        description: "Not yet implemented in the native app — accepted but unused"
         required: false
         default: "false"
       custom_css:
@@ -71,19 +71,19 @@ on:
         description: "Public R2 URL of the app icon (downloaded into the build)"
         required: true
       splash_url:
-        description: "Public R2 URL of the splash screen (optional, used when splash_type is 'custom')"
+        description: "Not yet implemented in the native app — accepted but unused"
         required: false
         default: ""
       splash_type:
-        description: "'auto' centers the app icon on a solid background, 'custom' uses splash_url as a full-screen image"
+        description: "Not yet implemented in the native app — accepted but unused"
         required: false
         default: "auto"
       splash_bg_light:
-        description: "Splash background color (light mode), used when splash_type is 'auto'"
+        description: "Not yet implemented in the native app — accepted but unused"
         required: false
         default: "#ffffff"
       splash_bg_dark:
-        description: "Splash background color (dark mode), used when splash_type is 'auto'"
+        description: "Not yet implemented in the native app — accepted but unused"
         required: false
         default: "#000000"
       existing_keystore_base64:
@@ -119,327 +119,90 @@ jobs:
         uses: actions/checkout@v4
 
       # ── 2. Toolchain ──────────────────────────────────────────
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle (with caching)
         uses: gradle/actions/setup-gradle@v3
         with:
           cache-read-only: false
-          gradle-home-cache-includes: |
-            caches/modules-2
-            wrapper/dists
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      # ── 3. Inject app config ──────────────────────────────────
-      - name: Patch config.js and app.json
+      # ── 3. Rename the Kotlin package + generate AppConfig.kt ──
+      # Native Android (unlike Expo) requires the Kotlin source to
+      # physically live in a folder tree matching the package, and every
+      # file's own `package` declaration to match too — this moves
+      # app/src/main/java/in/truckflow/app to the real package's path and
+      # rewrites both .kt files' package lines, then writes a fresh
+      # AppConfig.kt (this build's equivalent of config.js) at the new
+      # location. See .github/scripts/*.py for all the patching logic in
+      # this and the following few steps — kept as real files rather than
+      # inline heredocs, since a heredoc's content can't be indented to
+      # match this YAML block without breaking either YAML's own
+      # indentation rules or Python's.
+      - name: Rename package and generate AppConfig.kt
         env:
-          APP_NAME:          ${{ inputs.app_name }}
-          APP_URL:           ${{ inputs.url }}
-          PACKAGE_NAME:      ${{ inputs.package_name }}
-          PINCH_ZOOM:        ${{ inputs.pinch_zoom }}
-          ALLOWED_DOMAINS:   ${{ inputs.allowed_domains }}
-          BOTTOM_NAV_ENABLED: ${{ inputs.bottom_nav_enabled }}
-          BOTTOM_NAV_TABS:    ${{ inputs.bottom_nav_tabs }}
-          APP_LOCK_ENABLED:   ${{ inputs.app_lock_enabled }}
-          CUSTOM_CSS:         ${{ inputs.custom_css }}
-          CUSTOM_JS:          ${{ inputs.custom_js }}
-          VERSION_CODE:       ${{ inputs.version_code }}
-          VERSION_NAME:       ${{ inputs.version_name }}
-        run: |
-          node - << 'EOF'
-          const fs = require("fs");
+          PACKAGE_NAME: ${{ inputs.package_name }}
+          APP_URL:      ${{ inputs.url }}
+          PINCH_ZOOM:   ${{ inputs.pinch_zoom }}
+          CUSTOM_CSS:   ${{ inputs.custom_css }}
+          CUSTOM_JS:    ${{ inputs.custom_js }}
+          PERMISSIONS:  ${{ inputs.permissions }}
+        run: python3 .github/scripts/rename_package.py
 
-          // config.js — sets the WebView URL and per-app behavior flags
-          const pinchZoomEnabled = (process.env.PINCH_ZOOM || "true").trim() !== "false";
-          const allowedDomains = (process.env.ALLOWED_DOMAINS || "")
-            .split(",")
-            .map((d) => d.trim())
-            .filter(Boolean);
-          const bottomNavEnabled = (process.env.BOTTOM_NAV_ENABLED || "false").trim() === "true";
-          let bottomNavTabs = [];
-          try {
-            bottomNavTabs = JSON.parse(process.env.BOTTOM_NAV_TABS || "[]");
-          } catch {
-            console.log("⚠ Could not parse BOTTOM_NAV_TABS, defaulting to no tabs");
-          }
-          const appLockEnabled = (process.env.APP_LOCK_ENABLED || "false").trim() === "true";
-          // Not trimmed, and deliberately embedded with JSON.stringify: this
-          // is arbitrary user CSS/JS that will contain quotes, newlines,
-          // backslashes and backticks, any of which would otherwise break out
-          // of the generated literal and produce a config.js that won't parse.
-          const customCss = process.env.CUSTOM_CSS || "";
-          const customJs  = process.env.CUSTOM_JS  || "";
-          fs.writeFileSync("config.js",
-            `export const config = {\n` +
-            `  webViewUrl: ${JSON.stringify(process.env.APP_URL)},\n` +
-            `  pinchZoomEnabled: ${pinchZoomEnabled},\n` +
-            `  allowedDomains: ${JSON.stringify(allowedDomains)},\n` +
-            `  bottomNav: ${JSON.stringify({ enabled: bottomNavEnabled, tabs: bottomNavTabs })},\n` +
-            `  appLockEnabled: ${appLockEnabled},\n` +
-            `  customCss: ${JSON.stringify(customCss)},\n` +
-            `  customJs: ${JSON.stringify(customJs)},\n` +
-            `};\n`
-          );
-          console.log(`✓ custom CSS ${customCss.length} chars, custom JS ${customJs.length} chars`);
-
-          // app.json — sets display name + package name
-          const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
-          app.expo.name                = process.env.APP_NAME;
-          app.expo.android             = app.expo.android || {};
-          app.expo.android.package     = process.env.PACKAGE_NAME;
-          // Version — `expo prebuild` copies these straight into
-          // android/app/build.gradle as versionCode/versionName. The
-          // dashboard hands out a fresh versionCode per build because
-          // Play permanently refuses an upload re-using an old one.
-          const versionCode = parseInt(process.env.VERSION_CODE || "1", 10);
-          if (!Number.isInteger(versionCode) || versionCode < 1) {
-            throw new Error(`Invalid version_code: ${process.env.VERSION_CODE}`);
-          }
-          app.expo.version             = process.env.VERSION_NAME || "1.0.0";
-          app.expo.android.versionCode = versionCode;
-          // Clear deep-link intent filters — they belong to the original project
-          app.expo.android.intentFilters = [];
-          fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
-          console.log(`✓ config.js and app.json patched (v${app.expo.version}, versionCode ${versionCode})`);
-          EOF
-
-      # ── 4. Download icon and splash from R2 ──────────────────
-      - name: Download icon and splash
+      # ── 4. Patch build.gradle.kts (namespace, applicationId, version) ─
+      - name: Patch build.gradle.kts
         env:
-          ICON_URL:        ${{ inputs.icon_url }}
-          SPLASH_URL:      ${{ inputs.splash_url }}
-          SPLASH_TYPE:     ${{ inputs.splash_type }}
-          SPLASH_BG_LIGHT: ${{ inputs.splash_bg_light }}
-          SPLASH_BG_DARK:  ${{ inputs.splash_bg_dark }}
-        run: |
-          mkdir -p assets
+          PACKAGE_NAME: ${{ inputs.package_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: python3 .github/scripts/patch_gradle.py
 
-          curl -fsSL "$ICON_URL" -o assets/user-icon.png
+      # ── 5. Patch AndroidManifest.xml ───────────────────────────
+      - name: Patch AndroidManifest.xml
+        env:
+          PACKAGE_NAME: ${{ inputs.package_name }}
+          APP_URL:      ${{ inputs.url }}
+          PERMISSIONS:  ${{ inputs.permissions }}
+        run: python3 .github/scripts/patch_manifest.py
+
+      # ── 6. App name + icon ──────────────────────────────────────
+      - name: Patch app name and icon
+        env:
+          APP_NAME: ${{ inputs.app_name }}
+          ICON_URL: ${{ inputs.icon_url }}
+        run: |
+          set -e
+          mkdir -p app/src/main/res/drawable
+          curl -fsSL "$ICON_URL" -o app/src/main/res/drawable/ic_launcher_foreground.png
           echo "✓ Icon downloaded from R2"
+          python3 .github/scripts/patch_icon.py
 
-          if [ -n "$SPLASH_URL" ]; then
-            curl -fsSL "$SPLASH_URL" -o assets/user-splash.png
-            echo "✓ Splash downloaded from R2"
-          fi
-
-          node - << 'EOF'
-          const fs = require("fs");
-          const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
-
-          app.expo.icon = "./assets/user-icon.png";
-          if (!app.expo.android) app.expo.android = {};
-          if (!app.expo.android.adaptiveIcon) app.expo.android.adaptiveIcon = {};
-          app.expo.android.adaptiveIcon.foregroundImage = "./assets/user-icon.png";
-
-          // Drop the template's placeholder expo-splash-screen entry — it's
-          // replaced below with one built from this build's actual inputs.
-          app.expo.plugins = (app.expo.plugins || []).filter((p) =>
-            !(p === "expo-splash-screen" || (Array.isArray(p) && p[0] === "expo-splash-screen"))
-          );
-
-          const splashType = (process.env.SPLASH_TYPE || "auto").trim();
-          const hasCustomSplash = (process.env.SPLASH_URL || "").trim() !== "";
-
-          if (splashType === "auto") {
-            // Solid background + centered app icon — no artwork to upload.
-            // Android's native splash (pre-JS) reads the light/dark variant
-            // straight from the OS night-mode setting, independent of the
-            // app's own userInterfaceStyle.
-            app.expo.plugins.push(["expo-splash-screen", {
-              backgroundColor: process.env.SPLASH_BG_LIGHT || "#ffffff",
-              image: "./assets/user-icon.png",
-              imageWidth: 200,
-              resizeMode: "contain",
-              dark: {
-                backgroundColor: process.env.SPLASH_BG_DARK || "#000000",
-                image: "./assets/user-icon.png",
-              },
-            }]);
-            console.log("✓ app.json updated with custom icon and automated splash");
-          } else if (hasCustomSplash) {
-            app.expo.plugins.push(["expo-splash-screen", {
-              backgroundColor: "#ffffff",
-              image: "./assets/user-splash.png",
-              resizeMode: "cover",
-            }]);
-            console.log("✓ app.json updated with custom icon and custom splash");
-          } else {
-            console.log("✓ app.json updated with custom icon (no splash configured)");
-          }
-
-          fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
-          EOF
-
-      # ── 5. Install dependencies ───────────────────────────────
-      - name: Install dependencies
-        run: npm ci
-
-      # ── 6. Firebase config ────────────────────────────────────────
-      - name: Configure Firebase (or strip if not enabled)
+      # ── 7. Firebase config ──────────────────────────────────────
+      # The google-services Gradle plugin hard-requires a valid
+      # google-services.json to exist regardless of whether this build
+      # actually wants notifications — when they're off (or the dashboard
+      # didn't send a config), configure_firebase.py writes a
+      # syntactically valid placeholder instead. AppConfig.NOTIFICATIONS_ENABLED
+      # (previous step) is what actually gates any runtime behavior; this
+      # file alone never turns notifications on.
+      - name: Configure Firebase
         env:
+          PACKAGE_NAME:         ${{ inputs.package_name }}
           PERMISSIONS:          ${{ inputs.permissions }}
           GOOGLE_SERVICES_JSON: ${{ inputs.google_services_json }}
-          APP_LOCK_ENABLED:     ${{ inputs.app_lock_enabled }}
-        run: |
-          node - << 'EOF'
-          const fs   = require("fs");
-          const perms = (process.env.PERMISSIONS || "").split(",").map(s => s.trim());
-          const gsJson = (process.env.GOOGLE_SERVICES_JSON || "").trim();
-          const appLockEnabled = (process.env.APP_LOCK_ENABLED || "false").trim() === "true";
+        run: python3 .github/scripts/configure_firebase.py
 
-          if (perms.includes("notifications") && gsJson) {
-            // Write google-services.json from the base64 input
-            fs.writeFileSync("google-services.json", Buffer.from(gsJson, "base64").toString("utf8"));
-            console.log("✓ google-services.json written from build input");
-          } else {
-            // Notifications not enabled — strip Firebase from the build
-            const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
-            app.expo.plugins = (app.expo.plugins || []).filter(p => p !== "@react-native-firebase/app");
-            if (app.expo.android) delete app.expo.android.googleServicesFile;
-            fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
-
-            // Remove notifications.js so Firebase is never imported
-            if (fs.existsSync("notifications.js")) fs.unlinkSync("notifications.js");
-
-            // Patch App.js to remove the useNotifications import and hook call
-            let appJs = fs.readFileSync("App.js", "utf8");
-            appJs = appJs.replace(/^import \{ useNotifications \} from '\.\/notifications';\n/m, "");
-            appJs = appJs.replace(/^  const \{ notificationUrl \} = useNotifications\(\);\n/m, "");
-            appJs = appJs.replace(/^  useEffect\(\(\) => \{\n    if \(notificationUrl\) setCurrentUrl\(notificationUrl\);\n  \}, \[notificationUrl\]\);\n/m, "");
-            fs.writeFileSync("App.js", appJs);
-
-            console.log("✓ Firebase stripped — notifications not enabled for this build");
-          }
-
-          // ── Camera ──────────────────────────────────────────────
-          if (!perms.includes("camera")) {
-            if (fs.existsSync("camera.js")) fs.unlinkSync("camera.js");
-            let appJs = fs.readFileSync("App.js", "utf8");
-            appJs = appJs.replace(/^import \{ handleCameraRequest \} from '\.\/camera';\n/m, "");
-            appJs = appJs.replace(/^      handleCameraRequest\(request\.resources\),\n/m, "");
-            fs.writeFileSync("App.js", appJs);
-            console.log("✓ Camera stripped — camera not enabled for this build");
-          }
-
-          // ── Microphone ───────────────────────────────────────────
-          if (!perms.includes("microphone")) {
-            if (fs.existsSync("microphone.js")) fs.unlinkSync("microphone.js");
-            let appJs = fs.readFileSync("App.js", "utf8");
-            appJs = appJs.replace(/^import \{ handleMicrophoneRequest \} from '\.\/microphone';\n/m, "");
-            appJs = appJs.replace(/^      handleMicrophoneRequest\(request\.resources\),\n/m, "");
-            fs.writeFileSync("App.js", appJs);
-            console.log("✓ Microphone stripped — microphone not enabled for this build");
-          }
-
-          // ── Location ─────────────────────────────────────────────
-          if (!perms.includes("location")) {
-            if (fs.existsSync("location.js")) fs.unlinkSync("location.js");
-            let appJs = fs.readFileSync("App.js", "utf8");
-            appJs = appJs.replace(/^import \{ handleLocationRequest \} from '\.\/location';\n/m, "");
-            appJs = appJs.replace(/^      handleLocationRequest\(request\.resources\),\n/m, "");
-            appJs = appJs.replace(/^          geolocationEnabled=\{true\}\n/m, "");
-            fs.writeFileSync("App.js", appJs);
-            console.log("✓ Location stripped — location not enabled for this build");
-          }
-
-          // ── App Lock ─────────────────────────────────────────────
-          // Unlike the runtime-only config.appLockEnabled flag, the
-          // expo-local-authentication plugin previously stayed in every
-          // build's app.json regardless of this toggle — so the native
-          // module got compiled in even for builds with App Lock off.
-          // Strip it the same way Firebase gets stripped when unused.
-          if (!appLockEnabled) {
-            const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
-            app.expo.plugins = (app.expo.plugins || []).filter(p => p !== "expo-local-authentication");
-            fs.writeFileSync("app.json", JSON.stringify(app, null, 2));
-            console.log("✓ expo-local-authentication stripped — App Lock not enabled for this build");
-          }
-
-          // ── Storage / Photo Library ──────────────────────────────
-          if (!perms.includes("storage")) {
-            if (fs.existsSync("storage.js")) fs.unlinkSync("storage.js");
-            console.log("✓ Storage stripped — photo library not enabled for this build");
-          }
-
-          // ── Strip WebView permission handler if nothing uses it ──
-          if (!perms.includes("camera") && !perms.includes("microphone") && !perms.includes("location")) {
-            let appJs = fs.readFileSync("App.js", "utf8");
-            appJs = appJs.replace(/\n  const handleWebViewPermission[\s\S]+?  \};\n/, "\n");
-            appJs = appJs.replace(/^ *onPermissionRequest=\{handleWebViewPermission\}\n/m, "");
-            fs.writeFileSync("App.js", appJs);
-            console.log("✓ WebView permission handler removed — no permissions need it");
-          }
-          EOF
-
-      # ── 7. Expo prebuild ──────────────────────────────────────
-      - name: Generate Android project
-        run: npx expo prebuild --platform android --clean
-
-      # ── 8. Inject permissions into AndroidManifest.xml ────────
-      - name: Inject Android permissions
-        env:
-          PERMISSIONS: ${{ inputs.permissions }}
-        run: |
-          python3 << 'PYEOF'
-          import os, re
-
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          permissions_input = os.environ.get("PERMISSIONS", "").strip()
-
-          PERMISSION_MAP = {
-              "notifications": ["android.permission.POST_NOTIFICATIONS"],
-              "camera":        ["android.permission.CAMERA"],
-              "microphone":    ["android.permission.RECORD_AUDIO"],
-              "location":      [
-                  "android.permission.ACCESS_FINE_LOCATION",
-                  "android.permission.ACCESS_COARSE_LOCATION",
-              ],
-              "storage":       [
-                  "android.permission.READ_MEDIA_IMAGES",
-                  "android.permission.READ_EXTERNAL_STORAGE",
-              ],
-          }
-
-          manifest = open(manifest_path).read()
-          existing = set(re.findall(r'uses-permission android:name="([^"]+)"', manifest))
-
-          to_add = []
-          for key in permissions_input.split(","):
-              key = key.strip()
-              if key in PERMISSION_MAP:
-                  for perm in PERMISSION_MAP[key]:
-                      if perm not in existing:
-                          to_add.append(perm)
-
-          if to_add:
-              lines = "\n".join(
-                  f'    <uses-permission android:name="{p}"/>' for p in to_add
-              )
-              manifest = manifest.replace("</manifest>", f"{lines}\n</manifest>")
-              open(manifest_path, "w").write(manifest)
-              print(f"✓ Added {len(to_add)} permission(s): {to_add}")
-          else:
-              print("✓ No new permissions needed")
-          PYEOF
-
-      # ── 9. Configure release signing ───────────────────────────
-      # Expo prebuild's generated build.gradle signs release builds with
-      # signingConfigs.debug — and since the runner is a fresh checkout
-      # with no cached ~/.android, Android Gradle Plugin auto-generates a
-      # brand-new random debug keystore on every single run. That makes
-      # every APK's signature different, so an update can never install
+      # ── 8. Configure release signing ───────────────────────────
+      # A fresh checkout has no cached ~/.android, so Android Gradle
+      # Plugin would auto-generate a brand-new random debug keystore on
+      # every run if release stayed unsigned/debug-signed — that makes
+      # every APK's signature different, so an update could never install
       # over a previous version (Android rejects the signature mismatch).
       # Fix: give the app a real, persistent release key. Reuse the one
       # from a previous build if the dashboard sent one; otherwise
@@ -453,7 +216,7 @@ jobs:
           EXISTING_KEY_ALIAS:       ${{ inputs.existing_key_alias }}
         run: |
           set -e
-          KEYSTORE_PATH="android/app/release.keystore"
+          KEYSTORE_PATH="app/release.keystore"
 
           if [ -n "$EXISTING_KEYSTORE_BASE64" ]; then
             echo "$EXISTING_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
@@ -468,9 +231,9 @@ jobs:
             # Java 17 here) has no concept of a per-key password separate
             # from the store password — keytool silently ignores -keypass
             # when it differs and encrypts the key with storepass anyway,
-            # but build.gradle would still tell Gradle to decrypt with the
-            # (unused) different KEY_PASSWORD at sign time, failing with
-            # "Given final block not properly padded". Keep them identical.
+            # but build.gradle.kts would still tell Gradle to decrypt with
+            # the (unused) different KEY_PASSWORD at sign time, failing
+            # with "Given final block not properly padded". Keep identical.
             KEY_PASSWORD="$STORE_PASSWORD"
             KEY_ALIAS="release-$(openssl rand -hex 4)"
             keytool -genkeypair -v \
@@ -502,71 +265,14 @@ jobs:
             echo -n "$NEW_KEYSTORE_BASE64" > /tmp/new_keystore_base64.txt
           fi
 
-          # Wire the release build type to this keystore instead of the
-          # debug one Expo's template defaults to.
-          python3 << 'PYEOF'
-          import re
+          python3 .github/scripts/configure_signing.py
 
-          path = "android/app/build.gradle"
-          content = open(path).read()
-
-          def find_block(text, needle):
-              """Return (open_brace_idx, close_brace_idx) for the {...} block
-              that immediately follows the first match of `needle`."""
-              m = re.search(needle, text)
-              if not m:
-                  raise ValueError(f"Could not find block starting with: {needle}")
-              open_idx = text.index("{", m.end() - 1)
-              depth = 0
-              i = open_idx
-              while i < len(text):
-                  if text[i] == "{":
-                      depth += 1
-                  elif text[i] == "}":
-                      depth -= 1
-                      if depth == 0:
-                          return open_idx, i
-                  i += 1
-              raise ValueError(f"Unbalanced braces for block: {needle}")
-
-          # 1. Add a `release` signing config next to the existing `debug` one.
-          sc_open, sc_close = find_block(content, r"signingConfigs\s*\{")
-          release_signing_config = (
-              "\n        release {\n"
-              "            storeFile file('release.keystore')\n"
-              "            storePassword System.getenv(\"STORE_PASSWORD\")\n"
-              "            keyAlias System.getenv(\"KEY_ALIAS\")\n"
-              "            keyPassword System.getenv(\"KEY_PASSWORD\")\n"
-              "        }\n    "
-          )
-          content = content[:sc_close] + release_signing_config + content[sc_close:]
-
-          # 2. Point buildTypes.release at signingConfigs.release instead of .debug.
-          bt_open, bt_close = find_block(content, r"buildTypes\s*\{")
-          build_types_block = content[bt_open:bt_close]
-          rel_open, rel_close = find_block(build_types_block, r"release\s*\{")
-          release_block = build_types_block[rel_open:rel_close]
-          patched_release_block = release_block.replace(
-              "signingConfig signingConfigs.debug", "signingConfig signingConfigs.release"
-          )
-          if patched_release_block == release_block:
-              raise ValueError("Did not find signingConfig signingConfigs.debug inside buildTypes.release — template may have changed")
-          build_types_block = build_types_block[:rel_open] + patched_release_block + build_types_block[rel_close:]
-          content = content[:bt_open] + build_types_block + content[bt_close:]
-
-          open(path, "w").write(content)
-          print("✓ build.gradle wired to the release signing config")
-          PYEOF
-
-      # ── 10. Build release APK + AAB ────────────────────────────
+      # ── 9. Build release APK + AAB ──────────────────────────────
       # Both in one Gradle invocation on purpose: the expensive work
-      # (JS bundle, javac, dexing, merged resources) is shared between
-      # the two tasks and only runs once. Splitting this into two steps
-      # would re-run configuration and lose that sharing. The extra cost
-      # over the APK alone is proto resource linking plus bundle
-      # packaging — well under a minute.
+      # (javac, dexing, merged resources) is shared between the two tasks
+      # and only runs once. Splitting this into two steps would re-run
+      # configuration and lose that sharing.
       - name: Build APK and AAB
-        working-directory: android
         run: |
           # Teed to a file so the failure webhook can hand the user the
           # actual Gradle error instead of a bare "Failed". pipefail is
@@ -574,7 +280,7 @@ jobs:
           set -o pipefail
           ./gradlew assembleRelease bundleRelease 2>&1 | tee /tmp/build.log
 
-      # ── 11. Upload APK + AAB to Cloudflare R2 ─────────────────
+      # ── 10. Upload APK + AAB to Cloudflare R2 ──────────────────
       - name: Upload APK and AAB to Cloudflare R2
         id: upload
         env:
@@ -596,7 +302,7 @@ jobs:
               --no-progress
           }
 
-          APK="android/app/build/outputs/apk/release/app-release.apk"
+          APK="app/build/outputs/apk/release/app-release.apk"
           APK_KEY="apks/${BUILD_ID}/app-release.apk"
           upload "${APK}" "${APK_KEY}"
           DOWNLOAD_URL="${R2_PUBLIC_URL}/${APK_KEY}"
@@ -606,7 +312,7 @@ jobs:
           # The AAB is for uploading to Play. Treated as best-effort: if
           # the bundle is missing the APK build still stands on its own,
           # and the dashboard simply won't offer an AAB download.
-          AAB="android/app/build/outputs/bundle/release/app-release.aab"
+          AAB="app/build/outputs/bundle/release/app-release.aab"
           if [ -f "${AAB}" ]; then
             AAB_KEY="apks/${BUILD_ID}/app-release.aab"
             upload "${AAB}" "${AAB_KEY}"
@@ -618,12 +324,23 @@ jobs:
             echo "⚠ No AAB at ${AAB} — continuing with the APK only"
           fi
 
-          # Extract SHA256 fingerprint from the signed APK
-          SHA256=$(keytool -printcert -jarfile "${APK}" 2>/dev/null | grep "SHA256:" | sed 's/.*SHA256: //' | tr -d ' \n')
+          # Extract SHA256 fingerprint from the signed APK. `keytool
+          # -printcert -jarfile` only understands the legacy v1/JAR
+          # signing scheme — AGP signs release builds with v2 (and no v1)
+          # by default, which keytool silently reports as "Not a signed
+          # jar file", so this used apksigner instead, and reformats its
+          # lowercase-no-colons digest into the AA:BB:CC:... form
+          # assetlinks.json and Play Console both expect.
+          APKSIGNER=$(find "${ANDROID_HOME}/build-tools" -maxdepth 2 -name apksigner | sort -V | tail -1)
+          SHA256=$("$APKSIGNER" verify --print-certs "${APK}" \
+            | grep "certificate SHA-256 digest" \
+            | sed 's/.*: //' \
+            | tr 'a-f' 'A-F' \
+            | sed 's/../&:/g; s/:$//')
           echo "SHA256_FINGERPRINT=${SHA256}" >> "$GITHUB_ENV"
           echo "✓ SHA256 fingerprint: ${SHA256}"
 
-      # ── 12. Notify dashboard — success ────────────────────────
+      # ── 11. Notify dashboard — success ─────────────────────────
       # Only includes keystore fields when this build generated a brand
       # new signing key (first build for this app) — the dashboard
       # persists it so the next build reuses the same key.
@@ -670,7 +387,7 @@ jobs:
             -d "$PAYLOAD"
           echo "✓ Webhook notified — success"
 
-      # ── 13. Notify dashboard — failure ────────────────────────
+      # ── 12. Notify dashboard — failure ─────────────────────────
       - name: Webhook — failure
         if: failure()
         env:
@@ -687,7 +404,7 @@ jobs:
           if [ -f /tmp/build.log ]; then
             LOGS=$(tail -n 200 /tmp/build.log | tail -c 15000)
           else
-            LOGS="The build failed before Gradle started — usually while fetching the icon or splash image, or during Expo prebuild. Nothing was compiled."
+            LOGS="The build failed before Gradle started — usually while renaming the package, patching the manifest, or fetching the icon. Nothing was compiled."
           fi
 
           # Belt and braces. Gradle has no reason to echo the signing
