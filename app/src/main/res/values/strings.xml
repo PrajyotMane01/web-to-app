@@ -1,0 +1,6 @@
+<resources>
+    <!-- Rewritten in full by CI per build (see .github/workflows/build-apk.yml,
+         "Patch app name and icon") — the value here is just this repo's own
+         default when built directly. -->
+    <string name="app_name">Capsule Test</string>
+</resources>
