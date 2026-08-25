@@ -92,6 +92,7 @@ object AppConfig {{
     const val MICROPHONE_ENABLED = {str("microphone" in perms).lower()}
     const val LOCATION_ENABLED = {str("location" in perms).lower()}
     const val NOTIFICATIONS_ENABLED = {str("notifications" in perms).lower()}
+    const val STORAGE_ENABLED = {str("storage" in perms).lower()}
 
     const val DEEP_LINK_SCHEME = {json.dumps(package_name)}
 

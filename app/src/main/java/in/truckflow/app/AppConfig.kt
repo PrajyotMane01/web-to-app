@@ -19,6 +19,7 @@ object AppConfig {
     const val MICROPHONE_ENABLED = false
     const val LOCATION_ENABLED = false
     const val NOTIFICATIONS_ENABLED = false
+    const val STORAGE_ENABLED = false
 
     // The custom URL scheme this build's AndroidManifest.xml registers for
     // deep links (truckflow://...). Must match the manifest exactly — CI

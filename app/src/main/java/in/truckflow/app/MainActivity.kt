@@ -15,6 +15,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -38,6 +39,13 @@ private val WEBVIEW_RESOURCE_PERMISSIONS = mapOf(
     PermissionRequest.RESOURCE_VIDEO_CAPTURE to (Manifest.permission.CAMERA to { AppConfig.CAMERA_ENABLED }),
     PermissionRequest.RESOURCE_AUDIO_CAPTURE to (Manifest.permission.RECORD_AUDIO to { AppConfig.MICROPHONE_ENABLED }),
 )
+
+// READ_MEDIA_IMAGES replaced READ_EXTERNAL_STORAGE for this purpose in
+// API 33 — patch_manifest.py declares both, so the manifest always has
+// whichever one this device build actually needs.
+private val STORAGE_PERMISSION: String =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_IMAGES
+    else Manifest.permission.READ_EXTERNAL_STORAGE
 
 // Every install subscribes to this one FCM topic — the dashboard sends
 // broadcast pushes straight to it, no per-device token registration.
@@ -126,6 +134,31 @@ class MainActivity : AppCompatActivity() {
             pendingGeolocationCallback = null
             pendingGeolocationOrigin = null
             if (callback != null && origin != null) callback.invoke(origin, granted, false)
+        }
+
+    // A <input type="file"> tap (WebChromeClient.onShowFileChooser) waiting
+    // on either the storage runtime permission or the chooser activity
+    // itself — same two-step shape as the WebView media permissions above.
+    private var pendingFileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingFileChooserIntent: Intent? = null
+
+    private val filePickerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val callback = pendingFileChooserCallback
+            pendingFileChooserCallback = null
+            callback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
+        }
+
+    private val storagePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val intent = pendingFileChooserIntent
+            pendingFileChooserIntent = null
+            if (granted && intent != null) {
+                launchFileChooserIntent(intent)
+            } else {
+                pendingFileChooserCallback?.onReceiveValue(null)
+                pendingFileChooserCallback = null
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -290,6 +323,28 @@ class MainActivity : AppCompatActivity() {
                 pendingGeolocationOrigin = origin
                 locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             }
+
+            // Without this override, WebView does nothing at all when a
+            // <input type="file"> is tapped — no picker, no error, no
+            // callback. Returning false here is exactly that broken
+            // no-op, which is what a disabled Photo Library permission
+            // should look like: the input is present but inert.
+            override fun onShowFileChooser(
+                webView: WebView,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                fileChooserParams: FileChooserParams
+            ): Boolean {
+                if (!AppConfig.STORAGE_ENABLED) return false
+                pendingFileChooserCallback = filePathCallback
+                val intent = fileChooserParams.createIntent()
+                if (hasPermission(STORAGE_PERMISSION)) {
+                    launchFileChooserIntent(intent)
+                } else {
+                    pendingFileChooserIntent = intent
+                    storagePermissionLauncher.launch(STORAGE_PERMISSION)
+                }
+                return true
+            }
         }
 
         val startUrl = deepLinkUrl(intent) ?: notificationUrl(intent) ?: AppConfig.WEB_VIEW_URL
@@ -353,6 +408,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    private fun launchFileChooserIntent(intent: Intent) {
+        try {
+            filePickerLauncher.launch(intent)
+        } catch (e: ActivityNotFoundException) {
+            pendingFileChooserCallback?.onReceiveValue(null)
+            pendingFileChooserCallback = null
+        }
+    }
 
     // Grants whichever of the request's resources are both enabled for
     // this build (AppConfig) and actually permitted right now, denies the
