@@ -8,7 +8,7 @@ declaration to match too.
 
 Run via `python3 .github/scripts/rename_package.py` from the repo root.
 Reads PACKAGE_NAME, APP_URL, PINCH_ZOOM, CUSTOM_CSS, CUSTOM_JS,
-PERMISSIONS from the environment.
+PERMISSIONS, BLOCKED_DOMAINS from the environment.
 """
 import json
 import os
@@ -60,6 +60,7 @@ pinch_zoom = (os.environ.get("PINCH_ZOOM") or "true").strip() != "false"
 # characters).
 custom_css = os.environ.get("CUSTOM_CSS", "")
 custom_js = os.environ.get("CUSTOM_JS", "")
+blocked_domains = [d.strip() for d in os.environ.get("BLOCKED_DOMAINS", "").split(",") if d.strip()]
 
 app_config = f"""package {package_decl}
 
@@ -77,6 +78,8 @@ object AppConfig {{
     const val NOTIFICATIONS_ENABLED = {str("notifications" in perms).lower()}
 
     const val DEEP_LINK_SCHEME = {json.dumps(package_name)}
+
+    val BLOCKED_DOMAINS: List<String> = listOf({", ".join(json.dumps(d) for d in blocked_domains)})
 }}
 """
 

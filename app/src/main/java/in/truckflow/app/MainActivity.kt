@@ -65,14 +65,18 @@ private fun cssInjectionScript(css: String): String {
 
 // Everything else loads inline with no allowlist — these are the
 // exceptions. Matched domains (and their subdomains) never load in this
-// WebView; they're handed to the phone's normal browser instead.
-private val BLOCKED_HOSTS = setOf(
+// WebView; they're handed to the phone's normal browser instead. The
+// fixed set is always blocked regardless of what the dashboard sends;
+// AppConfig.BLOCKED_DOMAINS adds per-app entries on top of it.
+private val DEFAULT_BLOCKED_HOSTS = setOf(
     "instagram.com",
     "facebook.com",
     "twitter.com",
     "x.com",
     "tiktok.com",
 )
+
+private val BLOCKED_HOSTS: Set<String> = DEFAULT_BLOCKED_HOSTS + AppConfig.BLOCKED_DOMAINS
 
 private fun isBlockedHost(host: String): Boolean =
     BLOCKED_HOSTS.any { host == it || host.endsWith(".$it") }

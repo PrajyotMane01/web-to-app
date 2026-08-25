@@ -25,4 +25,8 @@ object AppConfig {
     // patches both from the same package_name input, since a package name
     // is already guaranteed unique and doubles fine as a URI scheme.
     const val DEEP_LINK_SCHEME = "truckflow"
+
+    // Extra hostnames this app's dashboard owner chose to block, on top of
+    // the fixed set MainActivity.kt always blocks (instagram/facebook/etc).
+    val BLOCKED_DOMAINS: List<String> = emptyList()
 }

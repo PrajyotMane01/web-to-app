@@ -28,8 +28,8 @@ on:
         description: "'true' enables native pinch-to-zoom on the WebView, 'false' disables it"
         required: false
         default: "true"
-      allowed_domains:
-        description: "Unused by the native app (kept only so the dashboard's existing input isn't rejected) — see AppConfig.kt/MainActivity.kt for the fixed blocklist this app actually uses"
+      blocked_domains:
+        description: "Comma-separated extra hostnames to block, on top of the fixed set (instagram.com, facebook.com, twitter.com, x.com, tiktok.com) MainActivity.kt always blocks"
         required: false
         default: ""
       bottom_nav_enabled:
@@ -153,6 +153,7 @@ jobs:
           CUSTOM_CSS:   ${{ inputs.custom_css }}
           CUSTOM_JS:    ${{ inputs.custom_js }}
           PERMISSIONS:  ${{ inputs.permissions }}
+          BLOCKED_DOMAINS: ${{ inputs.blocked_domains }}
         run: python3 .github/scripts/rename_package.py
 
       # ── 4. Patch build.gradle.kts (namespace, applicationId, version) ─
