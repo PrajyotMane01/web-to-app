@@ -33,11 +33,11 @@ on:
         required: false
         default: ""
       bottom_nav_enabled:
-        description: "Not yet implemented in the native app — accepted but unused"
+        description: "'true' shows a native bottom tab bar"
         required: false
         default: "false"
       bottom_nav_tabs:
-        description: "Not yet implemented in the native app — accepted but unused"
+        description: "JSON array of {label, url} — up to 5 tabs, each just points the WebView at a fixed URL"
         required: false
         default: "[]"
       app_lock_enabled:
@@ -154,6 +154,8 @@ jobs:
           CUSTOM_JS:    ${{ inputs.custom_js }}
           PERMISSIONS:  ${{ inputs.permissions }}
           BLOCKED_DOMAINS: ${{ inputs.blocked_domains }}
+          BOTTOM_NAV_ENABLED: ${{ inputs.bottom_nav_enabled }}
+          BOTTOM_NAV_TABS:    ${{ inputs.bottom_nav_tabs }}
         run: python3 .github/scripts/rename_package.py
 
       # ── 4. Patch build.gradle.kts (namespace, applicationId, version) ─

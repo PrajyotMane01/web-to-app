@@ -1,55 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     android:fitsSystemWindows="true">
 
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipe_refresh"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
-        <WebView
-            android:id="@+id/webview"
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/swipe_refresh"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent">
 
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+            <WebView
+                android:id="@+id/webview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
 
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+        <LinearLayout
+            android:id="@+id/error_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?android:attr/colorBackground"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingHorizontal="32dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="You're offline"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="24dp"
+                android:text="Check your internet connection and try again."
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="15sp"
+                android:gravity="center" />
+
+            <Button
+                android:id="@+id/retry_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Try Again" />
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- Populated programmatically (one entry per AppConfig.BOTTOM_NAV_TABS) and
+         made visible only when AppConfig.BOTTOM_NAV_ENABLED — see
+         MainActivity.setupBottomNav(). -->
     <LinearLayout
-        android:id="@+id/error_container"
+        android:id="@+id/bottom_nav_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
         android:background="?android:attr/colorBackground"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:paddingHorizontal="32dp"
-        android:visibility="gone">
+        android:elevation="8dp"
+        android:visibility="gone" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="You're offline"
-            android:textColor="?android:attr/textColorPrimary"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="24dp"
-            android:text="Check your internet connection and try again."
-            android:textColor="?android:attr/textColorSecondary"
-            android:textSize="15sp"
-            android:gravity="center" />
-
-        <Button
-            android:id="@+id/retry_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Try Again" />
-
-    </LinearLayout>
-
-</FrameLayout>
+</LinearLayout>

@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -86,6 +87,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var errorContainer: View
     private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    private lateinit var bottomNavContainer: android.widget.LinearLayout
+    private val bottomNavTabViews = mutableListOf<android.widget.TextView>()
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way */ }
@@ -148,6 +151,11 @@ class MainActivity : AppCompatActivity() {
         // position, so this never fights with normal in-page scrolling.
         swipeRefresh = findViewById(R.id.swipe_refresh)
         swipeRefresh.setOnRefreshListener { webView.reload() }
+
+        bottomNavContainer = findViewById(R.id.bottom_nav_container)
+        if (AppConfig.BOTTOM_NAV_ENABLED && AppConfig.BOTTOM_NAV_TABS.isNotEmpty()) {
+            setupBottomNav()
+        }
 
         // Runs before the page's own scripts/first paint, on every
         // navigation this WebView makes — avoids a flash of unstyled
@@ -270,7 +278,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.loadUrl(deepLinkUrl(intent) ?: notificationUrl(intent) ?: AppConfig.WEB_VIEW_URL)
+        val startUrl = deepLinkUrl(intent) ?: notificationUrl(intent) ?: AppConfig.WEB_VIEW_URL
+        webView.loadUrl(startUrl)
+        if (AppConfig.BOTTOM_NAV_ENABLED) {
+            val startTabIndex = AppConfig.BOTTOM_NAV_TABS.indexOfFirst { it.second == startUrl }
+            if (startTabIndex >= 0) selectBottomNavTab(startTabIndex)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -334,6 +347,50 @@ class MainActivity : AppCompatActivity() {
             request.grant(grantedResources.toTypedArray())
         } else {
             request.deny()
+        }
+    }
+
+    // Builds one TextView per AppConfig.BOTTOM_NAV_TABS entry — no icons in
+    // the dashboard's tab schema (label + url only), so a plain label bar
+    // is what actually reflects what's configurable, rather than a
+    // Material bottom nav's icon slots we'd have to fake.
+    private fun setupBottomNav() {
+        bottomNavContainer.visibility = View.VISIBLE
+
+        AppConfig.BOTTOM_NAV_TABS.forEachIndexed { index, (label, url) ->
+            val tabView = android.widget.TextView(this).apply {
+                text = label
+                gravity = Gravity.CENTER
+                textSize = 12f
+                maxLines = 1
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+                setTextColor(ContextCompat.getColor(context, android.R.color.darker_gray))
+                isClickable = true
+                isFocusable = true
+                val outValue = android.util.TypedValue()
+                theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+                setBackgroundResource(outValue.resourceId)
+                setOnClickListener {
+                    selectBottomNavTab(index)
+                    webView.loadUrl(url)
+                }
+            }
+            bottomNavTabViews.add(tabView)
+            bottomNavContainer.addView(tabView)
+        }
+    }
+
+    private fun selectBottomNavTab(index: Int) {
+        val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val selectedColor = if (isDarkMode) Color.WHITE else Color.BLACK
+        bottomNavTabViews.forEachIndexed { i, view ->
+            val selected = i == index
+            view.setTextColor(
+                if (selected) selectedColor
+                else ContextCompat.getColor(view.context, android.R.color.darker_gray)
+            )
+            view.setTypeface(view.typeface, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
     }
 

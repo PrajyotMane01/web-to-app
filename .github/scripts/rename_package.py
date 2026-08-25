@@ -8,7 +8,8 @@ declaration to match too.
 
 Run via `python3 .github/scripts/rename_package.py` from the repo root.
 Reads PACKAGE_NAME, APP_URL, PINCH_ZOOM, CUSTOM_CSS, CUSTOM_JS,
-PERMISSIONS, BLOCKED_DOMAINS from the environment.
+PERMISSIONS, BLOCKED_DOMAINS, BOTTOM_NAV_ENABLED, BOTTOM_NAV_TABS from the
+environment.
 """
 import json
 import os
@@ -62,6 +63,19 @@ custom_css = os.environ.get("CUSTOM_CSS", "")
 custom_js = os.environ.get("CUSTOM_JS", "")
 blocked_domains = [d.strip() for d in os.environ.get("BLOCKED_DOMAINS", "").split(",") if d.strip()]
 
+bottom_nav_enabled = (os.environ.get("BOTTOM_NAV_ENABLED") or "false").strip() == "true"
+# Dashboard sends a JSON array of {label, url} (apps.schema.ts's
+# bottomNavTabsSchema) — same shape as bottom_nav_tabs in the workflow
+# inputs. Malformed/empty input just means no tabs, not a build failure.
+try:
+    bottom_nav_tabs = json.loads(os.environ.get("BOTTOM_NAV_TABS") or "[]")
+except json.JSONDecodeError:
+    bottom_nav_tabs = []
+bottom_nav_pairs = [
+    (tab["label"], tab["url"]) for tab in bottom_nav_tabs
+    if isinstance(tab, dict) and tab.get("label") and tab.get("url")
+]
+
 app_config = f"""package {package_decl}
 
 // Generated per build by .github/workflows/build-apk.yml — do not edit by
@@ -80,6 +94,9 @@ object AppConfig {{
     const val DEEP_LINK_SCHEME = {json.dumps(package_name)}
 
     val BLOCKED_DOMAINS: List<String> = listOf({", ".join(json.dumps(d) for d in blocked_domains)})
+
+    const val BOTTOM_NAV_ENABLED = {str(bottom_nav_enabled).lower()}
+    val BOTTOM_NAV_TABS: List<Pair<String, String>> = listOf({", ".join(f"{json.dumps(label)} to {json.dumps(url)}" for label, url in bottom_nav_pairs)})
 }}
 """
 

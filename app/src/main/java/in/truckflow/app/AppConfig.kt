@@ -29,4 +29,9 @@ object AppConfig {
     // Extra hostnames this app's dashboard owner chose to block, on top of
     // the fixed set MainActivity.kt always blocks (instagram/facebook/etc).
     val BLOCKED_DOMAINS: List<String> = emptyList()
+
+    // Native bottom tab bar — each tab just points the WebView at a fixed
+    // URL (label to URL). Hidden entirely unless enabled and non-empty.
+    const val BOTTOM_NAV_ENABLED = false
+    val BOTTOM_NAV_TABS: List<Pair<String, String>> = emptyList()
 }
