@@ -22,6 +22,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewCompat
@@ -90,6 +92,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bottomNavContainer: android.widget.LinearLayout
     private val bottomNavTabViews = mutableListOf<android.widget.TextView>()
 
+    private lateinit var lockContainer: View
+
+    // Whether the current foreground session has already passed the app
+    // lock. Reset to false in onStop so re-entering the app (not just the
+    // first launch) requires authenticating again.
+    private var isAuthenticated = false
+
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way */ }
 
@@ -155,6 +164,11 @@ class MainActivity : AppCompatActivity() {
         bottomNavContainer = findViewById(R.id.bottom_nav_container)
         if (AppConfig.BOTTOM_NAV_ENABLED && AppConfig.BOTTOM_NAV_TABS.isNotEmpty()) {
             setupBottomNav()
+        }
+
+        lockContainer = findViewById(R.id.lock_container)
+        findViewById<android.widget.Button>(R.id.unlock_button).setOnClickListener {
+            authenticateForAppLock()
         }
 
         // Runs before the page's own scripts/first paint, on every
@@ -286,6 +300,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Runs after onCreate on first launch, and again every time the app
+    // returns to the foreground. onStop (not onPause) is what resets
+    // isAuthenticated — the system biometric prompt itself only pauses
+    // this activity, never stops it, so it can't re-trigger itself here.
+    override fun onStart() {
+        super.onStart()
+        if (!AppConfig.APP_LOCK_ENABLED || isAuthenticated) return
+        if (canUseAppLock()) {
+            showAppLock()
+        } else {
+            // No biometric/PIN/pattern/password enrolled on this device —
+            // nothing to authenticate against, so don't lock the user out.
+            isAuthenticated = true
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (AppConfig.APP_LOCK_ENABLED) isAuthenticated = false
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -392,6 +427,46 @@ class MainActivity : AppCompatActivity() {
             )
             view.setTypeface(view.typeface, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
+    }
+
+    private fun canUseAppLock(): Boolean =
+        BiometricManager.from(this).canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        ) == BiometricManager.BIOMETRIC_SUCCESS
+
+    private fun showAppLock() {
+        lockContainer.visibility = View.VISIBLE
+        authenticateForAppLock()
+    }
+
+    private fun hideAppLock() {
+        isAuthenticated = true
+        lockContainer.visibility = View.GONE
+    }
+
+    private fun authenticateForAppLock() {
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(getString(R.string.app_name))
+            .setSubtitle("Verify your identity to continue")
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            .build()
+
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    hideAppLock()
+                }
+                // onAuthenticationFailed (wrong biometric) leaves the
+                // prompt open on its own — nothing to do here. A hard
+                // error (cancelled, too many attempts, lockout) leaves the
+                // lock screen up; the Unlock button lets the user retry.
+            }
+        )
+        prompt.authenticate(promptInfo)
     }
 
     private fun showError(show: Boolean) {

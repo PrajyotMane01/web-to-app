@@ -34,4 +34,10 @@ object AppConfig {
     // URL (label to URL). Hidden entirely unless enabled and non-empty.
     const val BOTTOM_NAV_ENABLED = false
     val BOTTOM_NAV_TABS: List<Pair<String, String>> = emptyList()
+
+    // Face/Fingerprint/device PIN gate shown before the app's content, on
+    // every foregrounding (see MainActivity's onStart/onStop). Silently
+    // skipped on a device with no biometric or PIN/pattern/password set up
+    // at all — there's nothing to authenticate against.
+    const val APP_LOCK_ENABLED = false
 }

@@ -41,7 +41,7 @@ on:
         required: false
         default: "[]"
       app_lock_enabled:
-        description: "Not yet implemented in the native app — accepted but unused"
+        description: "'true' requires Face/Fingerprint/device PIN before showing the app's content"
         required: false
         default: "false"
       custom_css:
@@ -156,6 +156,7 @@ jobs:
           BLOCKED_DOMAINS: ${{ inputs.blocked_domains }}
           BOTTOM_NAV_ENABLED: ${{ inputs.bottom_nav_enabled }}
           BOTTOM_NAV_TABS:    ${{ inputs.bottom_nav_tabs }}
+          APP_LOCK_ENABLED:   ${{ inputs.app_lock_enabled }}
         run: python3 .github/scripts/rename_package.py
 
       # ── 4. Patch build.gradle.kts (namespace, applicationId, version) ─

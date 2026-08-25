@@ -8,8 +8,8 @@ declaration to match too.
 
 Run via `python3 .github/scripts/rename_package.py` from the repo root.
 Reads PACKAGE_NAME, APP_URL, PINCH_ZOOM, CUSTOM_CSS, CUSTOM_JS,
-PERMISSIONS, BLOCKED_DOMAINS, BOTTOM_NAV_ENABLED, BOTTOM_NAV_TABS from the
-environment.
+PERMISSIONS, BLOCKED_DOMAINS, BOTTOM_NAV_ENABLED, BOTTOM_NAV_TABS,
+APP_LOCK_ENABLED from the environment.
 """
 import json
 import os
@@ -76,6 +76,8 @@ bottom_nav_pairs = [
     if isinstance(tab, dict) and tab.get("label") and tab.get("url")
 ]
 
+app_lock_enabled = (os.environ.get("APP_LOCK_ENABLED") or "false").strip() == "true"
+
 app_config = f"""package {package_decl}
 
 // Generated per build by .github/workflows/build-apk.yml — do not edit by
@@ -97,6 +99,8 @@ object AppConfig {{
 
     const val BOTTOM_NAV_ENABLED = {str(bottom_nav_enabled).lower()}
     val BOTTOM_NAV_TABS: List<Pair<String, String>> = listOf({", ".join(f"{json.dumps(label)} to {json.dumps(url)}" for label, url in bottom_nav_pairs)})
+
+    const val APP_LOCK_ENABLED = {str(app_lock_enabled).lower()}
 }}
 """
 

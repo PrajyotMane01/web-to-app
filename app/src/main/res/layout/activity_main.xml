@@ -58,6 +58,45 @@
 
         </LinearLayout>
 
+        <!-- Drawn last so it covers both the WebView and error_container
+             regardless of which is showing underneath — see
+             MainActivity.showAppLock()/hideAppLock(). -->
+        <LinearLayout
+            android:id="@+id/lock_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?android:attr/colorBackground"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingHorizontal="32dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="App locked"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="24dp"
+                android:text="Verify your identity to continue."
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="15sp"
+                android:gravity="center" />
+
+            <Button
+                android:id="@+id/unlock_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Unlock" />
+
+        </LinearLayout>
+
     </FrameLayout>
 
     <!-- Populated programmatically (one entry per AppConfig.BOTTOM_NAV_TABS) and
