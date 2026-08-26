@@ -194,7 +194,10 @@ jobs:
             curl -fsSL "$SPLASH_URL" -o /tmp/splash_source
             echo "✓ Splash image downloaded from R2"
           fi
-          pip install --quiet --disable-pip-version-check pillow
+          # cairosvg rasterizes SVG icons/splashes (Pillow can't read vector
+          # formats at all); pillow-heif adds HEIC/HEIF support (the default
+          # format for iPhone camera photos) — see patch_icon.py.
+          pip install --quiet --disable-pip-version-check pillow cairosvg pillow-heif
           python3 .github/scripts/patch_icon.py
 
       # ── 7. Firebase config ──────────────────────────────────────

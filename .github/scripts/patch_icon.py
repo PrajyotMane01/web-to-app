@@ -6,23 +6,48 @@ drawable/splash_image.png too. Run via
 `python3 .github/scripts/patch_icon.py` from the repo root. Reads
 APP_NAME from the environment.
 """
+import io
 import os
 import re
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
-# The dashboard accepts whatever image format a customer uploads (jpg,
-# webp, ...) — don't trust the source file's own format, always
-# re-encode to a real PNG. AAPT2 rejects a file named .png whose bytes
-# aren't actually PNG (that's exactly what broke the first real build: a
-# customer's .jpg icon landing here unconverted).
-Image.open("/tmp/icon_source").convert("RGBA").save(
+
+# The dashboard accepts whatever image format a customer uploads — don't
+# trust the source file's own format, always re-encode to a real PNG.
+# AAPT2 rejects a file named .png whose bytes aren't actually PNG (that's
+# exactly what broke an early real build: a customer's .jpg icon landing
+# here unconverted).
+#
+# Two formats need help before Image.open() can even see them:
+#  - SVG is vector, not a raster format Pillow reads at all — rasterize it
+#    with cairosvg first. Sniffed by content rather than by the upload's
+#    reported extension/mimetype, since neither is trustworthy.
+#  - HEIC/HEIF (the default format for iPhone camera photos) needs the
+#    pillow-heif plugin registered before Image.open() recognizes it —
+#    only imported when actually needed since it's a heavier dependency.
+def load_image(path: str) -> Image.Image:
+    content = open(path, "rb").read()
+    if b"<svg" in content[:4096]:
+        import cairosvg
+        return Image.open(io.BytesIO(
+            cairosvg.svg2png(bytestring=content, output_width=1024, output_height=1024)
+        ))
+    try:
+        return Image.open(io.BytesIO(content))
+    except UnidentifiedImageError:
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        return Image.open(io.BytesIO(content))
+
+
+load_image("/tmp/icon_source").convert("RGBA").save(
     "app/src/main/res/drawable/ic_launcher_foreground.png"
 )
 print("✓ Icon normalized to PNG")
 
 if os.path.exists("/tmp/splash_source"):
-    Image.open("/tmp/splash_source").convert("RGBA").save(
+    load_image("/tmp/splash_source").convert("RGBA").save(
         "app/src/main/res/drawable/splash_image.png"
     )
     print("✓ Splash image normalized to PNG")
