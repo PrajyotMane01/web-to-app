@@ -102,6 +102,9 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var lockContainer: View
 
+    private lateinit var splashContainer: View
+    private var splashDismissed = false
+
     // Whether the current foreground session has already passed the app
     // lock. Reset to false in onStop so re-entering the app (not just the
     // first launch) requires authenticating again.
@@ -204,6 +207,9 @@ class MainActivity : AppCompatActivity() {
             authenticateForAppLock()
         }
 
+        splashContainer = findViewById(R.id.splash_container)
+        setupSplash()
+
         // Runs before the page's own scripts/first paint, on every
         // navigation this WebView makes — avoids a flash of unstyled
         // content for the custom CSS. Injected directly into the JS engine
@@ -255,11 +261,13 @@ class MainActivity : AppCompatActivity() {
                 super.onReceivedError(view, request, error)
                 if (request.isForMainFrame) showError(true)
                 swipeRefresh.isRefreshing = false
+                if (request.isForMainFrame) hideSplash()
             }
 
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
                 swipeRefresh.isRefreshing = false
+                hideSplash()
                 // Re-apply CSS here too — belt-and-suspenders for WebView
                 // builds without document-start-script support, and covers
                 // SPA client-side navigations that don't reload the
@@ -491,6 +499,46 @@ class MainActivity : AppCompatActivity() {
             )
             view.setTypeface(view.typeface, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
+    }
+
+    // "custom" shows the CI-baked drawable/splash_image full-bleed if it
+    // actually exists (a build only gets one if the dashboard sent a
+    // splash_url); otherwise falls back to "auto" — a solid background
+    // (picked for the device's current light/dark mode) with the app icon
+    // centered, using the same foreground layer as the launcher icon so
+    // there's no separate splash asset to manage for the common case.
+    private fun setupSplash() {
+        val splashImageView = findViewById<android.widget.ImageView>(R.id.splash_image)
+        val splashIconView = findViewById<android.widget.ImageView>(R.id.splash_icon)
+
+        val customImageId = resources.getIdentifier("splash_image", "drawable", packageName)
+        if (AppConfig.SPLASH_TYPE == "custom" && customImageId != 0) {
+            splashImageView.setImageResource(customImageId)
+            splashImageView.visibility = View.VISIBLE
+        } else {
+            val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+            val bgHex = if (isDarkMode) AppConfig.SPLASH_BG_DARK else AppConfig.SPLASH_BG_LIGHT
+            val bgColor = try {
+                Color.parseColor(bgHex)
+            } catch (e: IllegalArgumentException) {
+                if (isDarkMode) Color.BLACK else Color.WHITE
+            }
+            splashContainer.setBackgroundColor(bgColor)
+            splashIconView.setImageResource(R.mipmap.ic_launcher)
+            splashIconView.visibility = View.VISIBLE
+        }
+
+        // Failsafe: a page that never fires onPageFinished/onReceivedError
+        // (e.g. a hung request that isn't a clean network failure) would
+        // otherwise leave the splash up forever.
+        splashContainer.postDelayed({ hideSplash() }, 6000)
+    }
+
+    private fun hideSplash() {
+        if (splashDismissed) return
+        splashDismissed = true
+        splashContainer.visibility = View.GONE
     }
 
     private fun canUseAppLock(): Boolean =

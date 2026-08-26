@@ -97,6 +97,31 @@
 
         </LinearLayout>
 
+        <!-- Drawn last of all — covers webview/error/lock while the site's
+             first page is still loading. See MainActivity.setupSplash()/
+             hideSplash(). Background color and icon/image are set
+             programmatically from AppConfig.SPLASH_*. -->
+        <FrameLayout
+            android:id="@+id/splash_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/splash_image"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/splash_icon"
+                android:layout_width="120dp"
+                android:layout_height="120dp"
+                android:layout_gravity="center"
+                android:visibility="gone" />
+
+        </FrameLayout>
+
     </FrameLayout>
 
     <!-- Populated programmatically (one entry per AppConfig.BOTTOM_NAV_TABS) and

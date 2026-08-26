@@ -71,19 +71,19 @@ on:
         description: "Public R2 URL of the app icon (downloaded into the build)"
         required: true
       splash_url:
-        description: "Not yet implemented in the native app — accepted but unused"
+        description: "Public R2 URL of a custom splash image (only used when splash_type is 'custom')"
         required: false
         default: ""
       splash_type:
-        description: "Not yet implemented in the native app — accepted but unused"
+        description: "'auto' shows the app icon centered on splash_bg_light/dark; 'custom' shows splash_url full-bleed"
         required: false
         default: "auto"
       splash_bg_light:
-        description: "Not yet implemented in the native app — accepted but unused"
+        description: "Splash background color in light mode (hex), used when splash_type is 'auto'"
         required: false
         default: "#ffffff"
       splash_bg_dark:
-        description: "Not yet implemented in the native app — accepted but unused"
+        description: "Splash background color in dark mode (hex), used when splash_type is 'auto'"
         required: false
         default: "#000000"
       existing_keystore_base64:
@@ -157,6 +157,9 @@ jobs:
           BOTTOM_NAV_ENABLED: ${{ inputs.bottom_nav_enabled }}
           BOTTOM_NAV_TABS:    ${{ inputs.bottom_nav_tabs }}
           APP_LOCK_ENABLED:   ${{ inputs.app_lock_enabled }}
+          SPLASH_TYPE:        ${{ inputs.splash_type }}
+          SPLASH_BG_LIGHT:    ${{ inputs.splash_bg_light }}
+          SPLASH_BG_DARK:     ${{ inputs.splash_bg_dark }}
         run: python3 .github/scripts/rename_package.py
 
       # ── 4. Patch build.gradle.kts (namespace, applicationId, version) ─
@@ -178,13 +181,19 @@ jobs:
       # ── 6. App name + icon ──────────────────────────────────────
       - name: Patch app name and icon
         env:
-          APP_NAME: ${{ inputs.app_name }}
-          ICON_URL: ${{ inputs.icon_url }}
+          APP_NAME:    ${{ inputs.app_name }}
+          ICON_URL:    ${{ inputs.icon_url }}
+          SPLASH_TYPE: ${{ inputs.splash_type }}
+          SPLASH_URL:  ${{ inputs.splash_url }}
         run: |
           set -e
           mkdir -p app/src/main/res/drawable
           curl -fsSL "$ICON_URL" -o /tmp/icon_source
           echo "✓ Icon downloaded from R2"
+          if [ "$SPLASH_TYPE" = "custom" ] && [ -n "$SPLASH_URL" ]; then
+            curl -fsSL "$SPLASH_URL" -o /tmp/splash_source
+            echo "✓ Splash image downloaded from R2"
+          fi
           pip install --quiet --disable-pip-version-check pillow
           python3 .github/scripts/patch_icon.py
 

@@ -1,7 +1,9 @@
-"""Patches the app name into strings.xml, and converts + points the
-adaptive icon at the icon the workflow step downloaded (into
-/tmp/icon_source, raw bytes exactly as the dashboard served them). Run
-via `python3 .github/scripts/patch_icon.py` from the repo root. Reads
+"""Patches the app name into strings.xml, converts + points the adaptive
+icon at the icon the workflow step downloaded (into /tmp/icon_source, raw
+bytes exactly as the dashboard served them), and — if a custom splash
+image was downloaded to /tmp/splash_source — converts that into
+drawable/splash_image.png too. Run via
+`python3 .github/scripts/patch_icon.py` from the repo root. Reads
 APP_NAME from the environment.
 """
 import os
@@ -18,6 +20,12 @@ Image.open("/tmp/icon_source").convert("RGBA").save(
     "app/src/main/res/drawable/ic_launcher_foreground.png"
 )
 print("✓ Icon normalized to PNG")
+
+if os.path.exists("/tmp/splash_source"):
+    Image.open("/tmp/splash_source").convert("RGBA").save(
+        "app/src/main/res/drawable/splash_image.png"
+    )
+    print("✓ Splash image normalized to PNG")
 
 path = "app/src/main/res/values/strings.xml"
 strings = open(path).read()

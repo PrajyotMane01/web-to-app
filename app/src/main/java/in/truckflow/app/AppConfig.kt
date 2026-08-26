@@ -25,6 +25,15 @@ object AppConfig {
     // deep links (truckflow://...). Must match the manifest exactly — CI
     // patches both from the same package_name input, since a package name
     // is already guaranteed unique and doubles fine as a URI scheme.
+    // Splash screen shown while the site's first page loads. "auto" is a
+    // solid background (light/dark picked by SPLASH_BG_LIGHT/DARK) with the
+    // app icon centered; "custom" shows the dashboard-uploaded splash image
+    // full-bleed instead (see drawable/splash_image, baked in by CI — falls
+    // back to "auto" if that drawable isn't present).
+    const val SPLASH_TYPE = "auto"
+    const val SPLASH_BG_LIGHT = "#ffffff"
+    const val SPLASH_BG_DARK = "#000000"
+
     const val DEEP_LINK_SCHEME = "truckflow"
 
     // Extra hostnames this app's dashboard owner chose to block, on top of

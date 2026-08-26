@@ -9,7 +9,8 @@ declaration to match too.
 Run via `python3 .github/scripts/rename_package.py` from the repo root.
 Reads PACKAGE_NAME, APP_URL, PINCH_ZOOM, CUSTOM_CSS, CUSTOM_JS,
 PERMISSIONS, BLOCKED_DOMAINS, BOTTOM_NAV_ENABLED, BOTTOM_NAV_TABS,
-APP_LOCK_ENABLED from the environment.
+APP_LOCK_ENABLED, SPLASH_TYPE, SPLASH_BG_LIGHT, SPLASH_BG_DARK from the
+environment.
 """
 import json
 import os
@@ -78,6 +79,12 @@ bottom_nav_pairs = [
 
 app_lock_enabled = (os.environ.get("APP_LOCK_ENABLED") or "false").strip() == "true"
 
+splash_type = (os.environ.get("SPLASH_TYPE") or "auto").strip()
+if splash_type not in ("auto", "custom"):
+    splash_type = "auto"
+splash_bg_light = (os.environ.get("SPLASH_BG_LIGHT") or "#ffffff").strip()
+splash_bg_dark = (os.environ.get("SPLASH_BG_DARK") or "#000000").strip()
+
 app_config = f"""package {package_decl}
 
 // Generated per build by .github/workflows/build-apk.yml — do not edit by
@@ -102,6 +109,10 @@ object AppConfig {{
     val BOTTOM_NAV_TABS: List<Pair<String, String>> = listOf({", ".join(f"{json.dumps(label)} to {json.dumps(url)}" for label, url in bottom_nav_pairs)})
 
     const val APP_LOCK_ENABLED = {str(app_lock_enabled).lower()}
+
+    const val SPLASH_TYPE = {json.dumps(splash_type)}
+    const val SPLASH_BG_LIGHT = {json.dumps(splash_bg_light)}
+    const val SPLASH_BG_DARK = {json.dumps(splash_bg_dark)}
 }}
 """
 
