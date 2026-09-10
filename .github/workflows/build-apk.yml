@@ -94,6 +94,10 @@ on:
         description: 'JSON {mode, expires_at, purchase_url} — mode "true" bakes the Capsule trial banner + 7-day expiry screen into the APK'
         required: false
         default: "{}"
+      callback_url:
+        description: "Base URL the build-complete webhook is POSTed to (which dashboard dispatched this build). Falls back to the WEBHOOK_URL secret when empty."
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -363,7 +367,7 @@ jobs:
       - name: Webhook — success
         if: success()
         env:
-          WEBHOOK_URL:      ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_URL:      ${{ inputs.callback_url || secrets.WEBHOOK_URL }}
           WEBHOOK_SECRET:   ${{ secrets.WEBHOOK_SECRET }}
           BUILD_ID:         ${{ inputs.build_id }}
           IS_NEW_KEYSTORE:  ${{ env.IS_NEW_KEYSTORE }}
@@ -407,7 +411,7 @@ jobs:
       - name: Webhook — failure
         if: failure()
         env:
-          WEBHOOK_URL:    ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_URL:    ${{ inputs.callback_url || secrets.WEBHOOK_URL }}
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           BUILD_ID:       ${{ inputs.build_id }}
           STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
