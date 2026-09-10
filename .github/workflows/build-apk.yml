@@ -86,34 +86,14 @@ on:
         description: "Splash background color in dark mode (hex), used when splash_type is 'auto'"
         required: false
         default: "#000000"
-      existing_keystore_base64:
-        description: "Base64-encoded release keystore from a previous build of this app (empty on first build)"
+      existing_keystore:
+        description: 'JSON {base64, store_password, key_password, key_alias} of this app''s release keystore from a previous build (empty/{} on first build)'
         required: false
-        default: ""
-      existing_store_password:
-        description: "Store password for existing_keystore_base64"
+        default: "{}"
+      trial:
+        description: 'JSON {mode, expires_at, purchase_url} — mode "true" bakes the Capsule trial banner + 7-day expiry screen into the APK'
         required: false
-        default: ""
-      existing_key_password:
-        description: "Key password for existing_keystore_base64"
-        required: false
-        default: ""
-      existing_key_alias:
-        description: "Key alias for existing_keystore_base64"
-        required: false
-        default: ""
-      trial_mode:
-        description: "'true' bakes the Capsule trial banner + 7-day expiry screen into the APK"
-        required: false
-        default: "false"
-      trial_expires_at:
-        description: "Epoch millis when the trial expires (only used when trial_mode is 'true')"
-        required: false
-        default: ""
-      trial_purchase_url:
-        description: "Dashboard URL the 'Purchase this app' button opens (only used when trial_mode is 'true')"
-        required: false
-        default: ""
+        default: "{}"
 
 jobs:
   build:
@@ -172,9 +152,7 @@ jobs:
           SPLASH_TYPE:        ${{ inputs.splash_type }}
           SPLASH_BG_LIGHT:    ${{ inputs.splash_bg_light }}
           SPLASH_BG_DARK:     ${{ inputs.splash_bg_dark }}
-          TRIAL_MODE:         ${{ inputs.trial_mode }}
-          TRIAL_EXPIRES_AT:   ${{ inputs.trial_expires_at }}
-          TRIAL_PURCHASE_URL: ${{ inputs.trial_purchase_url }}
+          TRIAL:             ${{ inputs.trial }}
         run: python3 .github/scripts/rename_package.py
 
       # ── 4. Patch build.gradle.kts (namespace, applicationId, version) ─
@@ -242,13 +220,19 @@ jobs:
       # so the dashboard can pass it in on the next build of this app.
       - name: Configure release signing
         env:
-          EXISTING_KEYSTORE_BASE64: ${{ inputs.existing_keystore_base64 }}
-          EXISTING_STORE_PASSWORD:  ${{ inputs.existing_store_password }}
-          EXISTING_KEY_PASSWORD:    ${{ inputs.existing_key_password }}
-          EXISTING_KEY_ALIAS:       ${{ inputs.existing_key_alias }}
+          EXISTING_KEYSTORE: ${{ inputs.existing_keystore }}
         run: |
           set -e
           KEYSTORE_PATH="app/release.keystore"
+
+          # workflow_dispatch caps inputs at 25, so the keystore's four
+          # fields ride in one JSON blob — unpack them here.
+          EXISTING_KEYSTORE_BASE64=$(printf '%s' "$EXISTING_KEYSTORE" | jq -r '.base64 // ""')
+          EXISTING_STORE_PASSWORD=$(printf '%s' "$EXISTING_KEYSTORE" | jq -r '.store_password // ""')
+          EXISTING_KEY_PASSWORD=$(printf '%s' "$EXISTING_KEYSTORE" | jq -r '.key_password // ""')
+          EXISTING_KEY_ALIAS=$(printf '%s' "$EXISTING_KEYSTORE" | jq -r '.key_alias // ""')
+          [ -n "$EXISTING_STORE_PASSWORD" ] && echo "::add-mask::${EXISTING_STORE_PASSWORD}"
+          [ -n "$EXISTING_KEY_PASSWORD" ] && echo "::add-mask::${EXISTING_KEY_PASSWORD}"
 
           if [ -n "$EXISTING_KEYSTORE_BASE64" ]; then
             echo "$EXISTING_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"

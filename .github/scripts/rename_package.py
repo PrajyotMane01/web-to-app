@@ -85,16 +85,22 @@ if splash_type not in ("auto", "custom"):
 splash_bg_light = (os.environ.get("SPLASH_BG_LIGHT") or "#ffffff").strip()
 splash_bg_dark = (os.environ.get("SPLASH_BG_DARK") or "#000000").strip()
 
-# Trial builds carry a Capsule banner and a client-side expiry check. The
-# expiry timestamp is epoch millis; 0 disables the check regardless of
-# TRIAL_MODE. A malformed value is treated as 0 (no expiry) rather than
-# failing the build.
-trial_mode = (os.environ.get("TRIAL_MODE") or "false").strip() == "true"
+# Trial builds carry a Capsule banner and a client-side expiry check.
+# The three fields ride in one JSON blob (TRIAL) because workflow_dispatch
+# caps inputs at 25. expires_at is epoch millis; 0 disables the check
+# regardless of mode. A malformed blob is treated as "not a trial".
 try:
-    trial_expires_at_ms = int((os.environ.get("TRIAL_EXPIRES_AT") or "0").strip() or "0")
+    _trial = json.loads(os.environ.get("TRIAL") or "{}")
+    if not isinstance(_trial, dict):
+        _trial = {}
+except json.JSONDecodeError:
+    _trial = {}
+trial_mode = str(_trial.get("mode", "")).strip() == "true"
+try:
+    trial_expires_at_ms = int(str(_trial.get("expires_at") or "0").strip() or "0")
 except ValueError:
     trial_expires_at_ms = 0
-trial_purchase_url = (os.environ.get("TRIAL_PURCHASE_URL") or "").strip()
+trial_purchase_url = str(_trial.get("purchase_url") or "").strip()
 
 app_config = f"""package {package_decl}
 
