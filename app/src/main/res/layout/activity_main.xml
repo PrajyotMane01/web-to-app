@@ -5,6 +5,21 @@
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
+    <!-- Capsule trial banner. Sits above the WebView so it never covers
+         content. Shown only on TRIAL_MODE builds — see
+         MainActivity.setupTrialBanner(). Text is set programmatically. -->
+    <TextView
+        android:id="@+id/trial_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#141312"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:gravity="center"
+        android:paddingVertical="6dp"
+        android:paddingHorizontal="12dp"
+        android:visibility="gone" />
+
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -121,6 +136,45 @@
                 android:visibility="gone" />
 
         </FrameLayout>
+
+        <!-- Trial-expired screen. Drawn last so it covers everything.
+             Shown only on a TRIAL_MODE build once the baked expiry
+             timestamp has passed — see MainActivity.checkTrialExpiry(). -->
+        <LinearLayout
+            android:id="@+id/trial_expired_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?android:attr/colorBackground"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingHorizontal="32dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Your trial has ended"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="24dp"
+                android:text="The 7-day free trial for this app is over. Purchase it to keep using it — everything you set up is still saved."
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="15sp"
+                android:gravity="center" />
+
+            <Button
+                android:id="@+id/trial_purchase_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Purchase this app" />
+
+        </LinearLayout>
 
     </FrameLayout>
 

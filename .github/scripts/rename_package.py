@@ -85,6 +85,17 @@ if splash_type not in ("auto", "custom"):
 splash_bg_light = (os.environ.get("SPLASH_BG_LIGHT") or "#ffffff").strip()
 splash_bg_dark = (os.environ.get("SPLASH_BG_DARK") or "#000000").strip()
 
+# Trial builds carry a Capsule banner and a client-side expiry check. The
+# expiry timestamp is epoch millis; 0 disables the check regardless of
+# TRIAL_MODE. A malformed value is treated as 0 (no expiry) rather than
+# failing the build.
+trial_mode = (os.environ.get("TRIAL_MODE") or "false").strip() == "true"
+try:
+    trial_expires_at_ms = int((os.environ.get("TRIAL_EXPIRES_AT") or "0").strip() or "0")
+except ValueError:
+    trial_expires_at_ms = 0
+trial_purchase_url = (os.environ.get("TRIAL_PURCHASE_URL") or "").strip()
+
 app_config = f"""package {package_decl}
 
 // Generated per build by .github/workflows/build-apk.yml — do not edit by
@@ -113,8 +124,12 @@ object AppConfig {{
     const val SPLASH_TYPE = {json.dumps(splash_type)}
     const val SPLASH_BG_LIGHT = {json.dumps(splash_bg_light)}
     const val SPLASH_BG_DARK = {json.dumps(splash_bg_dark)}
+
+    const val TRIAL_MODE = {str(trial_mode).lower()}
+    const val TRIAL_EXPIRES_AT_MS = {trial_expires_at_ms}L
+    const val TRIAL_PURCHASE_URL = {json.dumps(trial_purchase_url)}
 }}
 """
 
 open(os.path.join(new_path, "AppConfig.kt"), "w").write(app_config)
-print(f"✓ AppConfig.kt written — custom CSS {len(custom_css)} chars, custom JS {len(custom_js)} chars")
+print(f"✓ AppConfig.kt written — custom CSS {len(custom_css)} chars, custom JS {len(custom_js)} chars, trial_mode={trial_mode}")

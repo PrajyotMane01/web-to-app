@@ -102,6 +102,18 @@ on:
         description: "Key alias for existing_keystore_base64"
         required: false
         default: ""
+      trial_mode:
+        description: "'true' bakes the Capsule trial banner + 7-day expiry screen into the APK"
+        required: false
+        default: "false"
+      trial_expires_at:
+        description: "Epoch millis when the trial expires (only used when trial_mode is 'true')"
+        required: false
+        default: ""
+      trial_purchase_url:
+        description: "Dashboard URL the 'Purchase this app' button opens (only used when trial_mode is 'true')"
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -160,6 +172,9 @@ jobs:
           SPLASH_TYPE:        ${{ inputs.splash_type }}
           SPLASH_BG_LIGHT:    ${{ inputs.splash_bg_light }}
           SPLASH_BG_DARK:     ${{ inputs.splash_bg_dark }}
+          TRIAL_MODE:         ${{ inputs.trial_mode }}
+          TRIAL_EXPIRES_AT:   ${{ inputs.trial_expires_at }}
+          TRIAL_PURCHASE_URL: ${{ inputs.trial_purchase_url }}
         run: python3 .github/scripts/rename_package.py
 
       # ── 4. Patch build.gradle.kts (namespace, applicationId, version) ─

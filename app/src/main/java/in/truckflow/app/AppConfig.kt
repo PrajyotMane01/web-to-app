@@ -50,4 +50,15 @@ object AppConfig {
     // skipped on a device with no biometric or PIN/pattern/password set up
     // at all — there's nothing to authenticate against.
     const val APP_LOCK_ENABLED = false
+
+    // Free-trial build: shows a thin Capsule banner above the WebView and,
+    // once TRIAL_EXPIRES_AT_MS has passed, replaces the content with a
+    // "trial expired" screen. The day-7 auto-charge on the dashboard side
+    // is the real conversion mechanism; this screen is just the visible
+    // nudge. TRIAL_EXPIRES_AT_MS is epoch millis; 0 disables the check.
+    const val TRIAL_MODE = false
+    const val TRIAL_EXPIRES_AT_MS = 0L
+    // Dashboard URL the "Purchase this app" button opens once the trial
+    // has expired. Empty on non-trial builds.
+    const val TRIAL_PURCHASE_URL = ""
 }
