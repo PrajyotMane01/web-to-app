@@ -102,6 +102,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var lockContainer: View
 
+    // Trial-build UI (AppConfig.TRIAL_MODE). Both stay GONE on a normal build.
+    private lateinit var trialBanner: android.widget.TextView
+    private lateinit var trialExpiredContainer: View
+
     private lateinit var splashContainer: View
     private var splashDismissed = false
 
@@ -206,6 +210,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<android.widget.Button>(R.id.unlock_button).setOnClickListener {
             authenticateForAppLock()
         }
+
+        trialBanner = findViewById(R.id.trial_banner)
+        trialExpiredContainer = findViewById(R.id.trial_expired_container)
+        findViewById<android.widget.Button>(R.id.trial_purchase_button).setOnClickListener {
+            AppConfig.TRIAL_PURCHASE_URL.takeIf { it.isNotEmpty() }?.let { openExternally(Uri.parse(it)) }
+        }
+        setupTrialBanner()
 
         splashContainer = findViewById(R.id.splash_container)
         setupSplash()
@@ -369,6 +380,11 @@ class MainActivity : AppCompatActivity() {
     // this activity, never stops it, so it can't re-trigger itself here.
     override fun onStart() {
         super.onStart()
+        // Re-check the trial clock on every foreground — a trial that
+        // expired while the app was backgrounded should show the expiry
+        // screen the moment it comes back, same cadence as the app lock.
+        checkTrialExpiry()
+
         if (!AppConfig.APP_LOCK_ENABLED || isAuthenticated) return
         if (canUseAppLock()) {
             showAppLock()
@@ -539,6 +555,35 @@ class MainActivity : AppCompatActivity() {
         if (splashDismissed) return
         splashDismissed = true
         splashContainer.visibility = View.GONE
+    }
+
+    // ── Free trial ─────────────────────────────────────────────
+    // Both no-ops on a normal build (TRIAL_MODE = false). The banner is a
+    // thin bar above the WebView; the expiry check swaps the content for
+    // a "purchase" screen once the baked deadline passes. A user can turn
+    // the phone clock back to dodge the screen — accepted: the real
+    // conversion pressure is the day-7 auto-charge on the server, not this.
+    private fun setupTrialBanner() {
+        if (!AppConfig.TRIAL_MODE) return
+        val daysLeft = if (AppConfig.TRIAL_EXPIRES_AT_MS > 0L) {
+            val ms = AppConfig.TRIAL_EXPIRES_AT_MS - System.currentTimeMillis()
+            Math.max(0L, Math.ceil(ms / 86_400_000.0).toLong())
+        } else null
+        trialBanner.text = when {
+            daysLeft == null      -> "Capsule trial"
+            daysLeft <= 0L        -> "Capsule trial — ending today"
+            daysLeft == 1L        -> "Capsule trial — 1 day left"
+            else                  -> "Capsule trial — $daysLeft days left"
+        }
+        trialBanner.visibility = View.VISIBLE
+    }
+
+    private fun checkTrialExpiry() {
+        if (!AppConfig.TRIAL_MODE || AppConfig.TRIAL_EXPIRES_AT_MS <= 0L) return
+        if (System.currentTimeMillis() <= AppConfig.TRIAL_EXPIRES_AT_MS) return
+        trialBanner.visibility = View.GONE
+        trialExpiredContainer.visibility = View.VISIBLE
+        webView.visibility = View.GONE
     }
 
     private fun canUseAppLock(): Boolean =
