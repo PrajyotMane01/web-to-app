@@ -26,6 +26,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -172,7 +174,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        applyStatusBarStyle()
+        applySystemBarColors()
         if (AppConfig.NOTIFICATIONS_ENABLED) {
             requestNotificationPermissionIfNeeded()
             FirebaseMessaging.getInstance().subscribeToTopic(FCM_TOPIC)
@@ -636,23 +638,91 @@ class MainActivity : AppCompatActivity() {
         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    private fun applyStatusBarStyle() {
+    // Paints the status bar and system nav bar independently, per
+    // AppConfig's light/dark colors. The two can't just be two solid
+    // window-background colors set separately: on API 35+ (targetSdk
+    // here) edge-to-edge is enforced and Window.statusBarColor /
+    // Window.navigationBarColor are both ignored, so each bar's own
+    // background is whatever's drawn behind it — the same one decorView
+    // background, showing through the gap fitsSystemWindows reserves at
+    // top and bottom. A flat single color (the pre-theming behavior) hit
+    // both gaps at once; a custom Drawable that paints only the top
+    // system-bar-inset strip one color and only the bottom strip another
+    // is what actually lets them differ.
+    private fun applySystemBarColors() {
         val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
-        val barColor = if (isDarkMode) Color.BLACK else Color.WHITE
 
-        // On API 35+ (targetSdk here) edge-to-edge is enforced and
-        // Window.statusBarColor is ignored, so the status bar's own
-        // background is whatever's drawn behind it — paint the decor view
-        // directly so the inset area (reserved by fitsSystemWindows on the
-        // root layout) shows the right color either way.
-        window.statusBarColor = barColor
-        window.decorView.setBackgroundColor(barColor)
+        fun parse(hex: String, fallback: Int) =
+            try { Color.parseColor(hex) } catch (e: IllegalArgumentException) { fallback }
 
-        // Dark icons/text on a light bar in light mode; light icons on the
-        // black bar in dark mode.
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars =
-            !isDarkMode
+        val statusColor = if (isDarkMode)
+            parse(AppConfig.STATUS_BAR_BG_DARK, Color.BLACK)
+        else
+            parse(AppConfig.STATUS_BAR_BG_LIGHT, Color.WHITE)
+        val navColor = if (isDarkMode)
+            parse(AppConfig.NAV_BAR_BG_DARK, Color.BLACK)
+        else
+            parse(AppConfig.NAV_BAR_BG_LIGHT, Color.WHITE)
+
+        val barsDrawable = SystemBarsDrawable(statusColor, navColor)
+        window.decorView.background = barsDrawable
+        // Below API 35 (or with edge-to-edge opted out) these still apply
+        // directly and are harmless alongside the drawable above.
+        window.statusBarColor = statusColor
+        window.navigationBarColor = navColor
+
+        ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            barsDrawable.topInsetPx = bars.top
+            barsDrawable.bottomInsetPx = bars.bottom
+            view.invalidate()
+            insets
+        }
+
+        // Dark icons/text on a light bar, light icons on a dark one —
+        // luminance-based per bar, not tied to the device's dark-mode flag,
+        // since a custom color can go either way regardless of dark mode.
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.isAppearanceLightStatusBars = isLightColor(statusColor)
+        controller.isAppearanceLightNavigationBars = isLightColor(navColor)
+    }
+
+    private fun isLightColor(color: Int): Boolean {
+        // Standard relative-luminance threshold for picking readable
+        // icon/text tone against an arbitrary background color.
+        val luminance = (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) / 255
+        return luminance > 0.5
+    }
+
+    // Paints only the top `topInsetPx` and bottom `bottomInsetPx` strips of
+    // its bounds — everything in between is left untouched (transparent),
+    // since real content always covers that area anyway.
+    private class SystemBarsDrawable(
+        private val topColor: Int,
+        private val bottomColor: Int,
+    ) : android.graphics.drawable.Drawable() {
+        var topInsetPx: Int = 0
+        var bottomInsetPx: Int = 0
+        private val paint = android.graphics.Paint()
+
+        override fun draw(canvas: android.graphics.Canvas) {
+            val b = bounds
+            if (topInsetPx > 0) {
+                paint.color = topColor
+                canvas.drawRect(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), (b.top + topInsetPx).toFloat(), paint)
+            }
+            if (bottomInsetPx > 0) {
+                paint.color = bottomColor
+                canvas.drawRect(b.left.toFloat(), (b.bottom - bottomInsetPx).toFloat(), b.right.toFloat(), b.bottom.toFloat(), paint)
+            }
+        }
+
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+        @Deprecated("Deprecated in Java", ReplaceWith("android.graphics.PixelFormat.TRANSLUCENT"))
+        @Suppress("DEPRECATION")
+        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
     }
 
     private fun openExternally(uri: Uri) {

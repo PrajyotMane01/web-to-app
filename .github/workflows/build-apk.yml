@@ -98,6 +98,10 @@ on:
         description: "Base URL the build-complete webhook is POSTed to (which dashboard dispatched this build). Falls back to the WEBHOOK_URL secret when empty."
         required: false
         default: ""
+      theme:
+        description: 'JSON {primary_color, status_bar_bg_light, status_bar_bg_dark, nav_bar_bg_light, nav_bar_bg_dark} (hex) — the 25th and last input the workflow_dispatch cap allows'
+        required: false
+        default: '{"primary_color":"#e85d2f","status_bar_bg_light":"#ffffff","status_bar_bg_dark":"#000000","nav_bar_bg_light":"#ffffff","nav_bar_bg_dark":"#000000"}'
 
 jobs:
   build:
@@ -157,6 +161,7 @@ jobs:
           SPLASH_BG_LIGHT:    ${{ inputs.splash_bg_light }}
           SPLASH_BG_DARK:     ${{ inputs.splash_bg_dark }}
           TRIAL:             ${{ inputs.trial }}
+          THEME:             ${{ inputs.theme }}
         run: python3 .github/scripts/rename_package.py
 
       # ── 4. Patch build.gradle.kts (namespace, applicationId, version) ─

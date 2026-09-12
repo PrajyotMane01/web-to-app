@@ -102,6 +102,22 @@ except ValueError:
     trial_expires_at_ms = 0
 trial_purchase_url = str(_trial.get("purchase_url") or "").strip()
 
+# Status bar + system nav bar background, light/dark, plus a primary
+# color kept for future native UI use — bundled for the same 25-input
+# reason as TRIAL above. A malformed blob falls back to plain white/black,
+# matching what MainActivity hardcoded before this existed.
+try:
+    _theme = json.loads(os.environ.get("THEME") or "{}")
+    if not isinstance(_theme, dict):
+        _theme = {}
+except json.JSONDecodeError:
+    _theme = {}
+primary_color = str(_theme.get("primary_color") or "#e85d2f").strip()
+status_bar_bg_light = str(_theme.get("status_bar_bg_light") or "#ffffff").strip()
+status_bar_bg_dark = str(_theme.get("status_bar_bg_dark") or "#000000").strip()
+nav_bar_bg_light = str(_theme.get("nav_bar_bg_light") or "#ffffff").strip()
+nav_bar_bg_dark = str(_theme.get("nav_bar_bg_dark") or "#000000").strip()
+
 app_config = f"""package {package_decl}
 
 // Generated per build by .github/workflows/build-apk.yml — do not edit by
@@ -134,6 +150,12 @@ object AppConfig {{
     const val TRIAL_MODE = {str(trial_mode).lower()}
     const val TRIAL_EXPIRES_AT_MS = {trial_expires_at_ms}L
     const val TRIAL_PURCHASE_URL = {json.dumps(trial_purchase_url)}
+
+    const val PRIMARY_COLOR = {json.dumps(primary_color)}
+    const val STATUS_BAR_BG_LIGHT = {json.dumps(status_bar_bg_light)}
+    const val STATUS_BAR_BG_DARK = {json.dumps(status_bar_bg_dark)}
+    const val NAV_BAR_BG_LIGHT = {json.dumps(nav_bar_bg_light)}
+    const val NAV_BAR_BG_DARK = {json.dumps(nav_bar_bg_dark)}
 }}
 """
 

@@ -61,4 +61,13 @@ object AppConfig {
     // Dashboard URL the "Purchase this app" button opens once the trial
     // has expired. Empty on non-trial builds.
     const val TRIAL_PURCHASE_URL = ""
+
+    // Status bar + system nav bar background, light/dark — the parts of
+    // the screen the wrapped website doesn't draw. Primary color is kept
+    // for future native UI use; nothing reads it yet.
+    const val PRIMARY_COLOR = "#e85d2f"
+    const val STATUS_BAR_BG_LIGHT = "#ffffff"
+    const val STATUS_BAR_BG_DARK = "#000000"
+    const val NAV_BAR_BG_LIGHT = "#ffffff"
+    const val NAV_BAR_BG_DARK = "#000000"
 }
