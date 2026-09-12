@@ -94,6 +94,9 @@ private val BLOCKED_HOSTS: Set<String> = DEFAULT_BLOCKED_HOSTS + AppConfig.BLOCK
 private fun isBlockedHost(host: String): Boolean =
     BLOCKED_HOSTS.any { host == it || host.endsWith(".$it") }
 
+private fun parseColorOrDefault(hex: String, fallback: Int): Int =
+    try { Color.parseColor(hex) } catch (e: IllegalArgumentException) { fallback }
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
@@ -192,8 +195,16 @@ class MainActivity : AppCompatActivity() {
         webView.settings.setGeolocationEnabled(AppConfig.LOCATION_ENABLED)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
+        // The only three buttons in an otherwise all-WebView app — tinted
+        // with the dashboard's Primary Color so they don't default to
+        // AppCompat's stock teal/purple regardless of the app's own brand.
+        val primaryColor = parseColorOrDefault(AppConfig.PRIMARY_COLOR, Color.parseColor("#e85d2f"))
+        fun tint(button: android.widget.Button) {
+            button.backgroundTintList = android.content.res.ColorStateList.valueOf(primaryColor)
+        }
+
         errorContainer = findViewById(R.id.error_container)
-        findViewById<android.widget.Button>(R.id.retry_button).setOnClickListener {
+        findViewById<android.widget.Button>(R.id.retry_button).also(::tint).setOnClickListener {
             webView.reload()
         }
 
@@ -209,13 +220,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         lockContainer = findViewById(R.id.lock_container)
-        findViewById<android.widget.Button>(R.id.unlock_button).setOnClickListener {
+        findViewById<android.widget.Button>(R.id.unlock_button).also(::tint).setOnClickListener {
             authenticateForAppLock()
         }
 
         trialBanner = findViewById(R.id.trial_banner)
         trialExpiredContainer = findViewById(R.id.trial_expired_container)
-        findViewById<android.widget.Button>(R.id.trial_purchase_button).setOnClickListener {
+        findViewById<android.widget.Button>(R.id.trial_purchase_button).also(::tint).setOnClickListener {
             AppConfig.TRIAL_PURCHASE_URL.takeIf { it.isNotEmpty() }?.let { openExternally(Uri.parse(it)) }
         }
         setupTrialBanner()
@@ -653,17 +664,14 @@ class MainActivity : AppCompatActivity() {
         val isDarkMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
 
-        fun parse(hex: String, fallback: Int) =
-            try { Color.parseColor(hex) } catch (e: IllegalArgumentException) { fallback }
-
         val statusColor = if (isDarkMode)
-            parse(AppConfig.STATUS_BAR_BG_DARK, Color.BLACK)
+            parseColorOrDefault(AppConfig.STATUS_BAR_BG_DARK, Color.BLACK)
         else
-            parse(AppConfig.STATUS_BAR_BG_LIGHT, Color.WHITE)
+            parseColorOrDefault(AppConfig.STATUS_BAR_BG_LIGHT, Color.WHITE)
         val navColor = if (isDarkMode)
-            parse(AppConfig.NAV_BAR_BG_DARK, Color.BLACK)
+            parseColorOrDefault(AppConfig.NAV_BAR_BG_DARK, Color.BLACK)
         else
-            parse(AppConfig.NAV_BAR_BG_LIGHT, Color.WHITE)
+            parseColorOrDefault(AppConfig.NAV_BAR_BG_LIGHT, Color.WHITE)
 
         val barsDrawable = SystemBarsDrawable(statusColor, navColor)
         window.decorView.background = barsDrawable
