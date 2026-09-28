@@ -21,6 +21,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
@@ -119,6 +120,23 @@ class MainActivity : AppCompatActivity() {
     // first launch) requires authenticating again.
     private var isAuthenticated = false
 
+    // Back goes through the WebView's history first. Targeting API 36 turns
+    // on predictive back, which never calls Activity.onBackPressed() — the
+    // system only talks to OnBackPressedDispatcher callbacks. Enabled only
+    // while there's history to go back to (kept in sync from
+    // doUpdateVisitedHistory), so on the first page the system's own
+    // back-to-home animation plays and the app closes as expected.
+    private val webBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            if (webView.canGoBack()) {
+                webView.goBack()
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
+        }
+    }
+
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way */ }
 
@@ -186,6 +204,7 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptCookie(true)
 
         webView = findViewById(R.id.webview)
+        onBackPressedDispatcher.addCallback(this, webBackCallback)
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.databaseEnabled = true
@@ -262,6 +281,13 @@ class MainActivity : AppCompatActivity() {
                 }
                 openExternally(uri)
                 return true
+            }
+
+            // Fires on every history change, including SPA pushState
+            // navigations that never trigger onPageStarted/onPageFinished.
+            override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                webBackCallback.isEnabled = view.canGoBack()
             }
 
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
@@ -651,8 +677,8 @@ class MainActivity : AppCompatActivity() {
 
     // Paints the status bar and system nav bar independently, per
     // AppConfig's light/dark colors. The two can't just be two solid
-    // window-background colors set separately: on API 35+ (targetSdk
-    // here) edge-to-edge is enforced and Window.statusBarColor /
+    // window-background colors set separately: on API 35+ (below our
+    // targetSdk) edge-to-edge is enforced and Window.statusBarColor /
     // Window.navigationBarColor are both ignored, so each bar's own
     // background is whatever's drawn behind it — the same one decorView
     // background, showing through the gap fitsSystemWindows reserves at
@@ -738,14 +764,6 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Intent.ACTION_VIEW, uri))
         } catch (e: ActivityNotFoundException) {
             Log.w(TAG, "No app found to handle $uri")
-        }
-    }
-
-    override fun onBackPressed() {
-        if (::webView.isInitialized && webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            super.onBackPressed()
         }
     }
 }

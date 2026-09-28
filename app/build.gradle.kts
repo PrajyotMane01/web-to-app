@@ -6,12 +6,14 @@ plugins {
 
 android {
     namespace = "in.truckflow.app"
-    compileSdk = 35
+    // Google Play requires new apps and updates to target API 36 (Android 16)
+    // from August 31, 2026.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "in.truckflow.app"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
     }
