@@ -125,8 +125,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # The action's default `packages` is "tools platform-tools", but the
+      # legacy `tools` package has been pulled from Google's SDK repo, so
+      # sdkmanager fails with "Failed to find package 'tools'". AGP fetches
+      # whatever build-tools/platform it needs on its own.
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Setup Gradle (with caching)
         uses: gradle/actions/setup-gradle@v3
